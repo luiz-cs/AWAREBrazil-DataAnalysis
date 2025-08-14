@@ -1,0 +1,31 @@
+---
+title: "Risk Assessment of Arboviruses in Brazilian State Capitals - 2024"
+author: "Luiz C Soares"
+date: "2025-08-14"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Steps for replication:
+
+1.  Gathering the data
+
+2.  Preparing data for evaluation
+
+3.  Creating Control Diagrams (for all years)
+
+4.  Making Risk Assessment (for all years)
+
+5.  Creating Control Diagrams (for 2024, without epidemic years)
+
+6.  Making Risk Assessment (for 2024, without epidemic years)
+
+7.  Creating descriptive graphs of incidence and risk
+
+```{r}
+
+
+```
