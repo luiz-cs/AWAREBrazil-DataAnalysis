@@ -29,3 +29,135 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 ```
+
+#First version
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(zoo)
+library(ggplot2)
+library(here)
+library(haven)
+library(lubridate)
+
+```
+
+# 2. Preparing data for evaluation
+
+```{r load-data}
+dengue <- read_csv(here("dengue/Dengue_Provaveis_2014_2024.csv"))
+
+dengue <- dengue %>% 
+  mutate(epidemiologic_week = paste0(year, "w", week))
+```
+
+# Campinas Data Preparation
+
+```{r campinas-prep}
+campinas <- dengue %>% 
+  filter(municipality == "350950 CAMPINAS") %>% # Selected city: Campinas/SP
+  group_by(epidemiologic_week, week, year) %>% 
+  summarise( #* Cases, deaths, and pop for this period
+    cases = sum(likely_cases, na.rm=TRUE),
+    population = sum(population, na.rm=TRUE),
+    deaths = sum(deaths, na.rm=TRUE),
+    .groups="drop"
+  ) %>%
+  mutate( #* Dengue incidence
+    incidence = ifelse(population > 0, cases / (population/100000), 0), 
+    wy = paste0(year, "w", as.integer(week)), #* Week to variable
+    epi_label = paste0(year, "w", week)
+  )
+```
+
+### Merging with epiweek
+
+```{r}
+
+# Epidemiological week starting on the first week of the winter
+epiweek40 <- read_dta(
+  here("dengue/epidemiological_week_startsweek40.dta")) 
+
+campinas <- campinas %>%
+  left_join(epiweek40, by = "wy")%>% 
+  mutate(yw = as.character(paste0(year_week40,"-", epidemiologic_week_startsweek40))) %>% 
+  filter(!is.na(incidence),
+         !is.na(week40))
+
+campinas <- campinas %>%
+  mutate(yw = factor(yw, levels = unique(yw)))  # keep the original order
+
+ggplot(campinas, aes(x = yw, y = incidence, group = 1)) +
+  geom_line() +
+  labs(x = "Epidemiological Week", 
+       y = "Incidence coefficient (Suspected Cases)") +
+  scale_x_discrete(breaks = levels(campinas$yw)[seq(1, length(levels(campinas$yw)), by = 25)]) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+
+# Control diagram (average + SD without epidemic years)
+
+### Incidence for 2024
+
+```{r incidence-2024}
+incidence2024 <- campinas %>% 
+  filter(year == 2024) %>%
+  transmute(incidence2024 = incidence, deaths, week2 = week, wy)
+```
+
+```{r control-diagram}
+control_data <- campinas %>%
+  filter(year %in% c(2016,2017,2018,2020,2021)) %>%
+  group_by(week2 = week) %>%
+  summarise(
+    avg_incidence = mean(incidence, na.rm=TRUE),
+    sd_incidence = sd(incidence, na.rm=TRUE),
+    .groups="drop"
+  ) %>%
+  mutate(high = avg_incidence + 1.96*sd_incidence,
+         low = pmax(0, avg_incidence - 1.96*sd_incidence)) %>%
+  left_join(incidence2024, by="week2")
+
+# Plot endemic channel
+ggplot(control_data, aes(x=week2, group = 1)) +
+  geom_ribbon(aes(ymin=low, ymax=high), fill="grey80") +
+  geom_line(aes(y=avg_incidence), linetype="dashed", color="black") +
+  geom_line(aes(y=incidence2024), color="red") +
+  labs(y="Incidence coefficient", x="Epidemiological week")
+```
+
+# Risk Assessment for 2024
+
+```{r risk-assessment}
+risk <- control_data %>%
+  arrange(week2) %>%
+  mutate(
+    riskassessment = 0,
+    increasedincidence = ifelse(incidence2024 > avg_incidence & incidence2024 < high, 1, 0),
+    increasedincidence4weeks = zoo::rollapply(increasedincidence, 4, function(x) all(x==1), fill=NA, align="right"),
+    increasedincidencehigh = ifelse(incidence2024 > high, 1, 0),
+    increasedincidencehigh4weeks = zoo::rollapply(increasedincidencehigh, 4, function(x) all(x==1), fill=NA, align="right"),
+    increaseddeath = c(NA, diff(deaths) > 0),
+    increaseddeath4w = zoo::rollapply(increaseddeath, 4, function(x) all(x==1), fill=NA, align="right"),
+    ln_incidence = log(incidence2024),
+    exponentialgrowth = ln_incidence - dplyr::lag(ln_incidence),
+    increasedexpgrowth = ifelse(exponentialgrowth > 0 & incidence2024 > high, 1, 0),
+    increaseddeath5w = zoo::rollapply(increaseddeath, 5, function(x) all(x==1), fill=NA, align="right")
+  ) %>%
+  mutate(
+    riskassessment = case_when(
+      increasedincidence4weeks == 1 ~ 1,
+      increasedincidencehigh4weeks == 1 | increaseddeath4w == 1 ~ 2,
+      increasedexpgrowth == 1 | increaseddeath5w == 1 ~ 3,
+      TRUE ~ 0
+    )
+  )
+
+saveRDS(risk, here("dengue/Campinas/riskCampinas_2024.RDS"))
+
+ggplot(risk, aes(x=week2, y=riskassessment, group = 1)) +
+  geom_line() +
+  scale_y_continuous(breaks=0:3) +
+  labs(x="Epidemiological week", y="Risk Assessment")
+```
