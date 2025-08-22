@@ -321,10 +321,10 @@ ggplot(risk_2024, aes(x = week2, y = riskassessment, group = 1)) +
 
 ```{r combined-plot}
 risk_colors <- c(
-  "0" = "#2ca25f", # Green
-  "1" = "#fdae6b", # Orange
-  "2" = "#e31a1c", # Red
-  "3" = "#810f7c"  # Purple for the highest risk
+  "0" = "green",
+  "1" = "yellow",
+  "2" = "orange",
+  "3" = "red"
 )
 
 ggplot(risk_2024, aes(x = week2)) +
@@ -395,16 +395,12 @@ ggplot(risk_2024, aes(x = week2)) +
 
 ```{r risk-levels-2024}
 # Define the colors and labels for the legend
-all_fill_colors <- c(
+risk_colors <- c(
   "Endemic Channel Upper Limit" = "grey80",
   "0" = "green",
   "1" = "yellow",
   "2" = "orange",
   "3" = "red"
-)
-
-line_colors <- c(
-  "Historical Average" = "blue"
 )
 
 # Create the plot using a bar chart style
@@ -419,7 +415,7 @@ ggplot(risk_2024, aes(x = week2)) +
 
   # 3. Blue dashed line for the historical average.
   # MOVED to be last so it's drawn on top. 'color' is inside aes().
-  geom_line(aes(y = avg_incidence, color = "Historical Average", group = 1), 
+  geom_line(aes(y = avg_incidence, color = "blue", group = 1), 
             linetype = "dashed", 
             size = 1) +
   
@@ -440,8 +436,8 @@ ggplot(risk_2024, aes(x = week2)) +
 
   # Apply the custom color scale for the LINE
   scale_color_manual(
-    name = "Historical Data",
-    values = line_colors
+    name = "Historical Average Incidence",
+    values = "blue"
   ) +
   
   # Add titles and labels
