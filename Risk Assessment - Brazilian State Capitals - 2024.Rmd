@@ -1,33 +1,14 @@
 ---
-title: "Risk Assessment of Arboviruses in Brazilian State Capitals - 2024"
-author: "Luiz C Soares"
-date: "2025-08-14"
-output: pdf_document
+title: "Risk Assessment of Arboviruses in Brazilian State Capitals"
+date: "`r format(Sys.Date(), '%Y-%m-%d')`"
+lang: pt-BR
+output:
+  pdf_document:
+    latex_engine: xelatex   
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-
-# Steps for replication:
-
-1.  Gathering the data
-
-2.  Preparing data for evaluation
-
-3.  Creating Control Diagrams (for all years)
-
-4.  Making Risk Assessment (for all years)
-
-5.  Creating Control Diagrams (for 2024, without epidemic years)
-
-6.  Making Risk Assessment (for 2024, without epidemic years)
-
-7.  Creating descriptive graphs of incidence and risk
-
-#First version
-
-```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, warning = F)
 library(tidyverse)
 library(lubridate)
 library(zoo)
@@ -35,207 +16,444 @@ library(ggplot2)
 library(here)
 library(haven)
 library(lubridate)
-
+library(readr)
 ```
 
-# 2. Preparing data for evaluation
+# Content:
 
-```{r load-data}
-dengue <- read_csv(here("dengue/Dengue_Provaveis_2014_2024.csv"))
+1. Gathering Data
 
-dengue <- dengue %>% 
+2. Preparing Data
+
+3. Running Risk Assessment (for 2024, without epidemic years)
+
+4. Descriptive graphs of incidence and risk
+
+5. Control Diagrams (for 2024, without epidemic years)
+
+6. Risk Levels in 2024
+
+# 1. Gathering Data
+
+```{r get-data}
+dengue_full <- read_csv(here("dengue/Dengue_Provaveis_2014_2024.csv")) %>% 
   mutate(epidemiologic_week = paste0(year, "w", week))
 
 # Epidemiological week starting on the first week of the winter
 epiweek40 <- read_dta(
   here("dengue/epidemiological_week_startsweek40.dta")) 
-
 ```
+# 2. Preparing Data 
 
-# Campinas Data Preparation
-
-```{r campinas-prep}
-campinas <- dengue %>% 
-  filter(municipality == "350950 CAMPINAS") %>% # Selected city: Campinas/SP
-  group_by(epidemiologic_week, week, year) %>% 
-  summarise( #* Cases, deaths, and pop for this period
-    cases = sum(likely_cases, na.rm=TRUE),
-    population = sum(population, na.rm=TRUE),
-    deaths = sum(deaths, na.rm=TRUE),
-    .groups="drop"
-  ) %>%
-  mutate( #* Dengue incidence
-    incidence = ifelse(population > 0, cases / (population/100000), 0), 
-    wy = paste0(year, "w", as.integer(week))) #* Week to variable
-
-```
-
-### Merging with epiweek
-
-```{r}
-
-
-campinas <- campinas %>%
-  full_join(epiweek40, by = "wy")%>% 
-  mutate(yw = as.character(paste0(year_week40,"-", epidemiologic_week_startsweek40))) %>%
-  arrange(yw) %>% 
-  mutate(year = zoo::na.locf(year, na.rm = FALSE), #carrying forward the value for week 53
-         cases = zoo::na.locf(cases, na.rm = FALSE),
-         population = zoo::na.locf(population, na.rm = FALSE),
-         deaths = zoo::na.locf(deaths, na.rm = FALSE),
-         incidence = zoo::na.locf(incidence, na.rm = FALSE),
-         yw = factor(yw, levels = unique(yw)),
-         epi_label = paste0(year_week40, "w", epidemiologic_week_startsweek40))   # keep the original order
-  
-ggplot(campinas, aes(x = yw, y = incidence, group = 1)) +
-  geom_line() +
-  labs(x = "Epidemiological Week", 
-       y = "Incidence coefficient (Suspected Cases)") +
-  scale_x_discrete(breaks = levels(campinas$yw)[seq(1, length(levels(campinas$yw)), by = 25)]) +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
-```
-
-# Control diagram (average + SD without epidemic years)
-
-### Incidence for 2024
-
-```{r incidence-2024}
-incidence2024 <- campinas %>% 
-  filter(year_week40 == 2024) %>%
-  transmute(incidence2024 = incidence, deaths, week2 = epidemiologic_week_startsweek40, wy)
-```
-
-```{r control-diagram}
-control_data <- campinas %>%
-  filter(year_week40 %in% c(2016,2017,2018,2020,2021)) %>%
-  group_by(week2 = epidemiologic_week_startsweek40) %>%
+## Grouping by municipality and epidemiological week
+```{r prepare-data}
+ ## Grouping by municipality and epidemiological week
+dengue_df <- dengue_full %>% 
+  # Correctly group by municipality, year, and week first
+  group_by(municipality, year, week) %>% 
   summarise(
-    avg_incidence = mean(incidence),
-    sd_incidence = sd(incidence),
-    .groups="drop"
+    cases = sum(likely_cases, na.rm = TRUE),
+    population = sum(population, na.rm = TRUE), 
+    deaths = sum(deaths, na.rm = TRUE),
+    .groups = "drop"
   ) %>%
-  mutate(high = avg_incidence + 1.96*sd_incidence,
-         low = pmax(0, avg_incidence - 1.96*sd_incidence)) %>%
-  left_join(incidence2024, by="week2")
-
-# Plot endemic channel
-ggplot(control_data, aes(x=week2, group = 1)) +
-  geom_ribbon(aes(ymin=low, ymax=high), fill="grey80") +
-  geom_line(aes(y=avg_incidence), linetype="dashed", color="black") +
-  geom_line(aes(y=incidence2024), color="red") +
-  labs(y="Incidence coefficient", x="Epidemiological week")
+  mutate(
+    incidence = ifelse(population > 0, cases / (population / 100000), 0),
+    wy = paste0(year, "w", as.integer(week))
+  ) %>%
+  full_join(epiweek40, by = "wy") %>%
+  # IMPORTANT FIX: Group by municipality BEFORE arranging and filling NAs
+  group_by(municipality) %>%
+  arrange(year_week40, epidemiologic_week_startsweek40) %>% 
+  mutate(
+    # Use across() to apply na.locf cleanly to several columns
+    across(c(year, cases, population, deaths, incidence), ~ zoo::na.locf(., na.rm = FALSE)),
+    yw = as.character(paste0(year_week40,"-", epidemiologic_week_startsweek40)),
+    epi_label = paste0(year_week40, "w", epidemiologic_week_startsweek40)
+  ) %>%
+  # Ungroup at the end to have a clean, final dataframe
+  ungroup()
 ```
 
-# Risk Assessment for 2024
 
-```{r risk-assessment}
+# 3. Risk Assessment
 
-risk_list <- list()
-risk <- control_data %>%
-  arrange(week2) %>%
-  mutate(
-    riskassessment = 0,
-    increasedincidence = ifelse(incidence2024 > avg_incidence & incidence2024 < high, 1, 0),
-    increasedincidence4weeks = zoo::rollapply(increasedincidence, 4, function(x) as.integer(all(x==1)), fill=NA, align="right"),
-    increasedincidencehigh = ifelse(incidence2024 > high, 1, 0),
-    increasedincidencehigh4weeks = zoo::rollapply(increasedincidencehigh, 4, function(x)as.integer(all(x==1)), fill=NA, align="right"),
-     increaseddeath = ifelse(deaths > lag(deaths), 1, 0),
-    increaseddeath4w = zoo::rollapply(increaseddeath, 4, function(x) as.integer(all(x==1)), fill=NA, align="right"),
-    ln_incidence = log(incidence2024),
-    exponentialgrowth = ln_incidence - dplyr::lag(ln_incidence),
-    increasedexpgrowth = ifelse(exponentialgrowth > 0 & incidence2024 > high, 1, 0),
-    increaseddeath5w = zoo::rollapply(increaseddeath, 5, function(x) as.integer(all(x==1)), fill=NA, align="right")
-  ) %>%
-  mutate(
-    risk_level1 = if_else(increasedincidence4weeks == 1, 1L, 0L),
-    risk_level2 = if_else(increasedincidencehigh4weeks == 1 | increaseddeath4w == 1, 2L, 0L),
-    risk_level3 = if_else(increasedexpgrowth == 1 | increaseddeath5w == 1, 3L, 0L),
-    riskassessment = pmax(risk_level1, risk_level2, risk_level3, na.rm = TRUE))
-saveRDS(risk, here("dengue/Campinas/riskCampinas_2024.RDS"))
+## Function for Risk Assessment
 
-ggplot(risk, aes(x=week2, y=riskassessment, group = 1)) +
-  geom_line() +
-  scale_y_continuous(breaks=0:3) +
-  labs(x="Epidemiological week", y="Risk Assessment")+
-  ylim(0,3)
+```{r risk-assess}
+perform_risk_analysis <- function(df, analysis_year = 2024) {
+  # Defines a function that takes a dataframe 'df' and an 'analysis_year'.
+
+  tryCatch({
+    # If an error occurs, the code will jump to the 'error' section at the end.
+
+    # === Part 1: Identify Epidemic Years based on Risk Score ===
+    # The goal of this part is to analyze all historical data to determine which years behaved like epidemics.
+
+    # Create a preliminary endemic channel using ALL historical data.
+    preliminary_channel <- df %>%
+      # 1. Select only data from years before the analysis_year.
+      filter(year_week40 < analysis_year) %>%
+      # 2. Group data by the epidemiological week number.
+      group_by(week2 = epidemiologic_week_startsweek40) %>%
+      # 3. For each week, calculate the historical average and standard deviation of incidence.
+      summarise(avg_incidence = mean(incidence, na.rm = TRUE), sd_incidence = sd(incidence, na.rm = TRUE), .groups = "drop") %>%
+      # 4. Calculate the upper alert threshold (95% confidence interval).
+      mutate(high = avg_incidence + (1.96 * sd_incidence))
+
+    # Check if there is enough historical data to proceed.
+    if(nrow(preliminary_channel) == 0) return(NULL)
+
+    # Assess all historical years against the preliminary channel to find epidemic years.
+    risk_all_years <- df %>%
+      # 1. Select only historical data.
+      filter(year_week40 < analysis_year) %>%
+      # 2. Add the calculated avg_incidence and high threshold to each row based on its week.
+      left_join(preliminary_channel, by = c("epidemiologic_week_startsweek40" = "week2")) %>%
+      # 3. Group the data by year to analyze each year independently.
+      group_by(year_week40) %>%
+      # 4. Ensure weeks are sorted chronologically within each year.
+      arrange(epidemiologic_week_startsweek40, .by_group = TRUE) %>%
+      # 5. Create several new columns (triggers) based on different risk conditions.
+      mutate(
+        # Trigger: Is incidence above average but below the high threshold? (1=yes, 0=no)
+        increasedincidence = ifelse(incidence > avg_incidence & incidence < high, 1, 0),
+        # Trigger: Has 'increasedincidence' been true for 4 straight weeks?
+        increasedincidence4weeks = zoo::rollapply(increasedincidence, 4, function(x) as.integer(all(x == 1)), fill = NA, align = "right"),
+        # Trigger: Is incidence above the high threshold?
+        increasedincidencehigh = ifelse(incidence > high, 1, 0),
+        # Trigger: Has 'increasedincidencehigh' been true for 4 straight weeks?
+        increasedincidencehigh4weeks = zoo::rollapply(increasedincidencehigh, 4, function(x) as.integer(all(x == 1)), fill = NA, align = "right"),
+        # Trigger: Did deaths increase from the previous week?
+        increaseddeath = ifelse(deaths > lag(deaths), 1, 0),
+        # Trigger: Has 'increaseddeath' been true for 4 straight weeks?
+        increaseddeath4w = zoo::rollapply(increaseddeath, 4, function(x) as.integer(all(x == 1)), fill = NA, align = "right"),
+        # Calculate log of incidence to check for exponential growth.
+        ln_incidence = ifelse(incidence > 0, log(incidence), 0),
+        # Calculate the week-over-week change in log(incidence).
+        exponentialgrowth = ln_incidence - dplyr::lag(ln_incidence),
+        # Trigger: Is growth exponential AND is incidence above the high threshold?
+        increasedexpgrowth = ifelse(exponentialgrowth > 0 & incidence > high, 1, 0),
+        # Trigger: Has 'increaseddeath' been true for 5 straight weeks?
+        increaseddeath5w = zoo::rollapply(increaseddeath, 5, function(x) as.integer(all(x == 1)), fill = NA, align = "right")
+      ) %>%
+      # Replace any NAs created by the rolling functions (at the start of the series) with 0.
+      mutate(across(c(increasedincidence4weeks, increasedincidencehigh4weeks, increaseddeath4w, increasedexpgrowth, increaseddeath5w), ~replace_na(., 0))) %>%
+      # Assign risk levels based on the triggers.
+      mutate(
+        # Risk Level 1: Sustained increase in cases.
+        risk_level1 = if_else(increasedincidence4weeks == 1, 1L, 0L),
+        # Risk Level 2: High alert for cases or sustained increase in deaths.
+        risk_level2 = if_else(increasedincidencehigh4weeks == 1 | increaseddeath4w == 1, 2L, 0L),
+        # Risk Level 3: Epidemic level based on exponential growth or prolonged increase in deaths.
+        risk_level3 = if_else(increasedexpgrowth == 1 | increaseddeath5w == 1, 3L, 0L),
+        # The final risk assessment for a week is the highest level triggered.
+        riskassessment = pmax(risk_level1, risk_level2, risk_level3, na.rm = TRUE)
+      )
+
+    # From the historical assessment, create a list of years that hit risk level 3.
+    epidemic_years <- risk_all_years %>% filter(riskassessment >= 3) %>% distinct(year_week40) %>% pull(year_week40)
+    # Create a list of all available historical years.
+    all_hist_years <- unique(df$year_week40[df$year_week40 < analysis_year])
+    # Create the list of non-epidemic years by removing epidemic years from all historical years.
+    non_epidemic_years <- all_hist_years[!all_hist_years %in% epidemic_years]
+    # Select only the 5 most recent non-epidemic years for the final baseline.
+    non_epidemic_years <- non_epidemic_years %>%
+      sort() %>%
+      tail(5)
+
+    # Fallback condition:  Skips the municipality if there are not enough non-epidemic years to build a reliable baseline (at least 2 are needed).
+    if (length(non_epidemic_years) < 2) {
+      
+      message(paste("Skipping municipality:", 
+                    unique(df$municipality), 
+                    "| Reason: Fewer than 2 non-epidemic years found."))
+                    
+      return(NULL) 
+    }
+
+    # === Part 2: Build Final Control Diagram and Assess the Current Year ===
+    # The goal of this part is to use the clean "non-epidemic" years to build a
+    # final, reliable baseline and assess the current analysis_year against it.
+
+    # Isolate the incidence and death data for the current analysis_year.
+    incidence_current_year <- df %>% filter(year_week40 == analysis_year) %>% transmute(incidence_current = incidence, deaths, week2 = epidemiologic_week_startsweek40)
+
+    # Build the final, clean endemic channel.
+    control_data <- df %>%
+      # 1. IMPORTANT: Filter for only the selected non-epidemic years.
+      filter(year_week40 %in% non_epidemic_years) %>%
+      # 2. Group by week.
+      group_by(week2 = epidemiologic_week_startsweek40) %>%
+      # 3. Recalculate the average and standard deviation using this cleaner data.
+      summarise(avg_incidence = mean(incidence, na.rm = TRUE), sd_incidence = sd(incidence, na.rm = TRUE), .groups = "drop") %>%
+      # 4. Create the final upper and lower thresholds for the control diagram.
+      mutate(high = avg_incidence + 1.96*sd_incidence, low = pmax(0, avg_incidence - 1.96*sd_incidence)) %>%
+      # 5. Join the final channel data with the current year's data.
+      left_join(incidence_current_year, by = "week2")
+
+    # Perform the final risk assessment for the analysis_year.
+    risk_final <- control_data %>%
+      arrange(week2) %>%
+      mutate(
+        increasedincidence = ifelse(incidence_current > avg_incidence & incidence_current < high, 1, 0),
+        increasedincidence4weeks = zoo::rollapply(increasedincidence, 4, function(x) as.integer(all(x==1)), fill=NA, align="right"),
+        increasedincidencehigh = ifelse(incidence_current > high, 1, 0),
+        increasedincidencehigh4weeks = zoo::rollapply(increasedincidencehigh, 4, function(x)as.integer(all(x==1)), fill=NA, align="right"),
+        increaseddeath = ifelse(deaths > lag(deaths), 1, 0),
+        increaseddeath4w = zoo::rollapply(increaseddeath, 4, function(x) as.integer(all(x==1)), fill=NA, align="right"),
+        ln_incidence = ifelse(incidence_current > 0, log(incidence_current), 0),
+        exponentialgrowth = ln_incidence - dplyr::lag(ln_incidence),
+        increasedexpgrowth = ifelse(exponentialgrowth > 0 & incidence_current > high, 1, 0),
+        increaseddeath5w = zoo::rollapply(increaseddeath, 5, function(x) as.integer(all(x==1)), fill=NA, align="right")
+      ) %>%
+      mutate(across(c(increasedincidence4weeks, increasedincidencehigh4weeks, increaseddeath4w, increasedexpgrowth, increaseddeath5w), ~replace_na(., 0))) %>%
+      mutate(
+        risk_level1 = if_else(increasedincidence4weeks == 1, 1L, 0L),
+        risk_level2 = if_else(increasedincidencehigh4weeks == 1 | increaseddeath4w == 1, 2L, 0L),
+        risk_level3 = if_else(increasedexpgrowth == 1 | increaseddeath5w == 1, 3L, 0L),
+        riskassessment = pmax(risk_level1, risk_level2, risk_level3, na.rm = TRUE)
+      )
+
+    # Return the results as a list containing two objects.
+    return(list(risk_final = risk_final, epidemic_years = epidemic_years))
+
+  }, error = function(e) {
+    # If any error occurred in the 'try' block, this code will run.
+    message(paste("Could not process municipality:", unique(df$municipality), "| Error:", e$message))
+    return(NULL)
+  })
+}
 ```
 
-# All municipalities 
+## Running risk assessment 
 
-```{r}
+```{r risks-listed}
+# Nest the data, creating a list-column with a dataframe for each municipality
+nested_data <- dengue_df %>%
+  group_by(municipality) %>%
+  nest()
 
-risk_list <- list()
+# Apply function to each nested dataframe
+results <- nested_data %>%
+  mutate(risk_analysis_results = map(data, perform_risk_analysis))
 
-for (i in dengue$municipality){
-  munic <- dengue %>% 
-  filter(municipality == i) %>% # Select city
-  group_by(municipality, epidemiologic_week, week, year) %>% 
-  summarise( #* Cases, deaths, and pop for this period
-    cases = sum(likely_cases, na.rm=TRUE),
-    population = sum(population, na.rm=TRUE),
-    deaths = sum(deaths, na.rm=TRUE),
-    .groups="drop"
-  ) %>%
-  mutate( #* Dengue incidence
-    incidence = ifelse(population > 0, cases / (population/100000), 0), 
-    wy = paste0(year, "w", as.integer(week))) %>%  #* Week to variable
-  full_join(epiweek40, by = "wy")%>% 
-    filter(!is.na(municipality)) %>% 
-  mutate(yw = as.character(paste0(year_week40,"-", epidemiologic_week_startsweek40))) %>%
-  arrange(yw) %>% 
-  mutate(year = zoo::na.locf(year, na.rm = FALSE), #carrying forward the value for week 53
-         cases = zoo::na.locf(cases, na.rm = FALSE),
-         population = zoo::na.locf(population, na.rm = FALSE),
-         deaths = zoo::na.locf(deaths, na.rm = FALSE),
-         incidence = zoo::na.locf(incidence, na.rm = FALSE),
-         yw = factor(yw, levels = unique(yw)),
-         epi_label = paste0(year_week40, "w", epidemiologic_week_startsweek40))   # keep the original order
-  
-  incidence2024 <- munic %>% 
-    filter(year_week40 == 2024) %>%
-    transmute(incidence2024 = incidence, deaths, week2 = epidemiologic_week_startsweek40, wy)
-  
-  munic <- munic %>%
-  filter(year_week40 %in% c(2019,2020,2021,2022,2023)) %>%
-  group_by(municipality, week2 = epidemiologic_week_startsweek40) %>%
-  summarise(
-    avg_incidence = mean(incidence),
-    sd_incidence = sd(incidence),
-    .groups="drop"
-  ) %>%
-  mutate(high = avg_incidence + 1.96*sd_incidence,
-         low = pmax(0, avg_incidence - 1.96*sd_incidence)) %>%
-  left_join(incidence2024, by="week2") %>%
-  arrange(week2) %>%
-  mutate(
-    riskassessment = 0,
-    increasedincidence = ifelse(incidence2024 > avg_incidence & incidence2024 < high, 1, 0),
-    increasedincidence4weeks = zoo::rollapply(increasedincidence, 4, function(x) as.integer(all(x==1)), fill=NA, align="right"),
-    increasedincidencehigh = ifelse(incidence2024 > high, 1, 0),
-    increasedincidencehigh4weeks = zoo::rollapply(increasedincidencehigh, 4, function(x)as.integer(all(x==1)), fill=NA, align="right"),
-     increaseddeath = ifelse(deaths > lag(deaths), 1, 0),
-    increaseddeath4w = zoo::rollapply(increaseddeath, 4, function(x) as.integer(all(x==1)), fill=NA, align="right"),
-    ln_incidence = log(incidence2024),
-    exponentialgrowth = ln_incidence - dplyr::lag(ln_incidence),
-    increasedexpgrowth = ifelse(exponentialgrowth > 0 & incidence2024 > high, 1, 0),
-    increaseddeath5w = zoo::rollapply(increaseddeath, 5, function(x) as.integer(all(x==1)), fill=NA, align="right")
-  ) %>%
-  mutate(
-    risk_level1 = if_else(increasedincidence4weeks == 1, 1L, 0L),
-    risk_level2 = if_else(increasedincidencehigh4weeks == 1 | increaseddeath4w == 1, 2L, 0L),
-    risk_level3 = if_else(increasedexpgrowth == 1 | increaseddeath5w == 1, 3L, 0L),
-    riskassessment = pmax(risk_level1, risk_level2, risk_level3, na.rm = TRUE))
-  
-  risk_list[[i]] <- munic
+# Unnest the results for the 2024 risk assessment
+risk_2024 <- results %>%
+  # Safely extract the 'risk_final' tibble from the list
+  mutate(risk_data = map(risk_analysis_results, ~ .x$risk_final)) %>%
+  select(municipality, risk_data) %>%
+  unnest(cols = c(risk_data))
+```
+
+## Table of epidemic years per municipality
+
+```{r epidemic-years-per-muni}
+# Helper function to safely extract epidemic years from the results list
+extract_epidemic_years <- function(model_output) {
+  if (!is.null(model_output) && "epidemic_years" %in% names(model_output)) {
+    if (length(model_output$epidemic_years) > 0) {
+      return(tibble(epidemic_year = as.character(model_output$epidemic_years)))
+    }
+  }
+  return(tibble(epidemic_year = character(0)))
 }
 
-risk <- dplyr::bind_rows(risk_list)
+# Extract and unnest the epidemic years data
+epidemic_years_data <- results %>%
+  mutate(epidemic_years = map(risk_analysis_results, extract_epidemic_years)) %>%
+  select(municipality, epidemic_years) %>%
+  unnest(cols = c(epidemic_years))
 
-saveRDS(risk, here("dengue/Campinas/riskALL_2024.RDS"))
+# Create a summary table
+epidemic_summary_table <- epidemic_years_data %>%
+  group_by(municipality) %>%
+  summarise(
+    epidemic_years_list = paste(sort(unique(epidemic_year)), collapse = ", "),
+    .groups = "drop"
+  ) %>%
+  rename(
+    `Municipality` = municipality,
+    `Epidemic Years` = epidemic_years_list
+  )
+
+# Table
+knitr::kable(epidemic_summary_table, caption = "Epidemic Years of Dengue by Municipality")
 ```
 
-# Loop for flagging epidemic years
+# 4.  Descriptive graphs of incidence and risk
 
-```{r}
+## Plotting Incidence per Municipality per Epidemiological Week
 
+```{r plot-suspected}
+ggplot(dengue_df, aes(x = yw, y = incidence, group = 1)) +
+  geom_line(color = "steelblue") +
+  facet_wrap(~ municipality, scales = "free_y") + 
+  labs(
+    title = "Weekly Dengue Incidence by Municipality",
+    x = "Epidemiological Week (Year-Week)",
+    y = "Incidence Rate (per 100,000 people)"
+  ) +
+  scale_x_discrete(breaks = levels(dengue_df$yw)[seq(1, length(levels(dengue_df$yw)))]) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 8))
+```
+
+## Plotting Risk per Municipality per Epidemiological Week
+
+```{r risk-per-city}
+ggplot(risk_2024, aes(x = week2, y = riskassessment, group = 1)) +
+  # geom_step is great for visualizing discrete changes in risk level
+  geom_step(color = "firebrick") + 
+  # Create a separate plot for each municipality
+  facet_wrap(~ municipality) + 
+  labs(
+    title = "Dengue Risk Assessment for 2024 by Municipality",
+    x = "Epidemiological Week of 2024",
+    y = "Calculated Risk Level"
+  ) +
+  scale_y_continuous(breaks = 0:3, limits = c(0, 3)) + 
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 8))
+```
+
+## Combining the graphs
+
+```{r combined-plot}
+risk_colors <- c(
+  "0" = "#2ca25f", # Green
+  "1" = "#fdae6b", # Orange
+  "2" = "#e31a1c", # Red
+  "3" = "#810f7c"  # Purple for the highest risk
+)
+
+ggplot(risk_2024, aes(x = week2)) +
+  
+  # The historical endemic channel (grey ribbon and dashed line)
+  geom_ribbon(aes(ymin = low, ymax = high), fill = "grey80", alpha = 0.6) +
+  geom_line(aes(y = avg_incidence), linetype = "dashed", color = "black") +
+  
+  # The 2024 incidence line, with color mapped to risk level
+  geom_line(aes(y = incidence_current, color = as.factor(riskassessment), group = 1), size = 1.1) +
+  
+  # Creating a grid of plots
+  facet_wrap(~ municipality, scales = "free_y") +
+  
+  # Apply custom color scale and labels
+  scale_color_manual(
+    name = "2024 Risk Level:", 
+    values = risk_colors,
+    labels = c("0 - Normal", "1 - Alert", "2 - High", "3 - Epidemic")
+  ) +
+  
+  # Update titles and labels for the combined plot
+  labs(
+    title = "Dengue Incidence & Risk Assessment (2024) for Brazilian Capitals",
+    subtitle = "The incidence line is colored by its weekly risk score.",
+    y = "Incidence Rate (per 100,000)",
+    x = "Epidemiological Week of 2024"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "top")
+```
+
+# 5. Control Diagrams (for 2024, without epidemic years)
+
+```{r plot-risk-2024}
+ggplot(risk_2024, aes(x = week2)) +
+  
+  # The historical endemic channel (grey ribbon)
+  geom_ribbon(aes(ymin = low, ymax = high), fill = "lightblue", alpha = 0.8) +
+  
+  # The historical average line
+  geom_line(aes(y = avg_incidence, linetype = "Historical Average", group = 1), color = "black") +
+  
+  # The 2024 incidence line
+  geom_line(aes(y = incidence_current, linetype = "2024 Incidence", group = 1), color = "red") +
+  
+  # Create a grid of plots for each municipality
+  facet_wrap(~ municipality, scales = "free_y") +
+  
+  # Customize the legend for clarity
+  scale_linetype_manual(
+    name = "Legend",
+    values = c("Historical Average" = "dashed", "2024 Incidence" = "solid")
+  ) +
+  
+  # Add titles and labels
+  labs(
+    title = "Control Diagrams for Dengue Incidence (2024)",
+    subtitle = "2024 Incidence vs. Non-Epidemic Historical Average",
+    y = "Incidence Rate (per 100,000)",
+    x = "Epidemiological Week of 2024"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "top")
+```
+
+# 6. Risk Levels of Dengue in 2024
+
+```{r risk-levels-2024}
+# Define the colors and labels for the legend
+all_fill_colors <- c(
+  "Endemic Channel Upper Limit" = "grey80",
+  "0" = "green",
+  "1" = "yellow",
+  "2" = "orange",
+  "3" = "red"
+)
+
+line_colors <- c(
+  "Historical Average" = "blue"
+)
+
+# Create the plot using a bar chart style
+ggplot(risk_2024, aes(x = week2)) +
+  
+  # 1. Gray bars representing the upper limit of the endemic channel.
+  # The 'fill' is now inside aes() to add it to the legend.
+  geom_col(aes(y = high, fill = "Endemic Channel Upper Limit"), alpha = 0.9) +
+  
+  # 2. Colored bars for the 2024 incidence, based on risk level.
+  geom_col(aes(y = incidence_current, fill = as.factor(riskassessment))) +
+
+  # 3. Blue dashed line for the historical average.
+  # MOVED to be last so it's drawn on top. 'color' is inside aes().
+  geom_line(aes(y = avg_incidence, color = "Historical Average", group = 1), 
+            linetype = "dashed", 
+            size = 1) +
+  
+  # Create a separate plot for each municipality
+  facet_wrap(~ municipality, scales = "free_y") +
+  
+  # Apply the custom color scale for the BARS
+  scale_fill_manual(
+    name = "Risk Level & Baseline",
+    values = all_fill_colors,
+    # Manually set the labels for the risk levels
+    labels = c("0" = "Level 0 - Normal", 
+               "1" = "Level 1 - Alert", 
+               "2" = "Level 2 - High",
+               "3" = "Level 3 - Epidemic",
+               "Endemic Channel Upper Limit" = "Endemic Channel Upper Limit")
+  ) +
+
+  # Apply the custom color scale for the LINE
+  scale_color_manual(
+    name = "Historical Data",
+    values = line_colors
+  ) +
+  
+  # Add titles and labels
+  labs(
+    title = "Risk Levels of Dengue Outbreak in 2024",
+    subtitle = "Weekly incidence compared to the historical endemic channel (excluding epidemic years)",
+    y = "Incidence Coefficient (per 100,000 inhabitants)",
+    x = "Epidemiological Week"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 90, vjust = 0.5, size = 8)
+  )
 ```
