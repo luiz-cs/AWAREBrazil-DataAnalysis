@@ -425,7 +425,7 @@ ggplot(risk_2024, aes(x = week2)) +
   # Apply the custom color scale for the BARS
   scale_fill_manual(
     name = "Risk Level & Baseline",
-    values = all_fill_colors,
+    values = risk_colors,
     # Manually set the labels for the risk levels
     labels = c("0" = "Level 0 - Normal", 
                "1" = "Level 1 - Alert", 
