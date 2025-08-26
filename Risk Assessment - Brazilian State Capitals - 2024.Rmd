@@ -42,6 +42,8 @@ dengue_full <- read_csv(here("dengue/Dengue_Provaveis_2014_2024.csv")) %>%
 # Epidemiological week starting on the first week of the winter
 epiweek40 <- read_dta(
   here("dengue/epidemiological_week_startsweek40.dta")) 
+
+
 ```
 # 2. Preparing Data 
 
@@ -453,3 +455,70 @@ ggplot(risk_2024, aes(x = week2)) +
     axis.text.x = element_text(angle = 90, vjust = 0.5, size = 8)
   )
 ```
+
+```{r}
+
+risk_2024 <- risk_2024 %>%  
+  filter(!is.na(municipality)) %>%
+  mutate(week2 = as.numeric(week2), 
+         riskassessment = factor(riskassessment))
+
+every_10 <- seq(min(risk_2024$week2, na.rm = TRUE), max(risk_2024$week2, na.rm = TRUE), by = 10)
+plot_labels_10 <- risk_2024$week2[match(every_10, risk_2024$week2)]
+
+#Plot
+g1 <- risk_2024 %>% 
+  ggplot(aes(x = week2)) +
+  geom_rect(aes(xmin = week2, xmax = week2 + 1,
+              ymin = low, ymax = high),
+          fill = "darkgrey")+
+  geom_rect(aes(xmin = week2, xmax = week2 + 1,
+                ymin = 0, ymax = incidence_current,
+                fill = riskassessment)) +
+  geom_line(aes(y = avg_incidence,
+                color = "Average incidence (prev. 5 years)",
+                linetype = "Average incidence (prev. 5 years)"),
+            size = 1) +
+  geom_step(aes(y = incidence_current,
+                color = "Weekly Incidence",
+                linetype = "Incidence coefficient"),
+            size = 1) +
+  theme_bw() +  
+  scale_color_manual(name = "Historical Average Incidence",
+                     values = c(
+    "Weekly Incidence" = "black",
+    "Average incidence (prev. 5 years)" = "blue"
+  )) +
+  scale_linetype_manual(name = "", values = c(
+    "Weekly Incidence" = "solid",
+    "Average incidence (prev. 5 years)" = "dashed"
+  )) +
+scale_fill_manual( values = c("0" = "#07E000", "1" = "#D9E000", "2" = "#E07000", "3" = "#E10000", "Endemic Channel Upper Limit" = "darkgrey"), name = "Risk Level & Baseline", 
+                    labels = c("0" = "Level 0 - Normal", 
+               "1" = "Level 1 - Alert", 
+               "2" = "Level 2 - High",
+               "3" = "Level 3 - Epidemic",
+               "Endemic Channel Upper Limit" = "Endemic Channel Upper Limit")) +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+    legend.position = "bottom",
+    text = element_text(family = "Times New Roman"),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 14),
+    legend.text = element_text(size = 12),
+    strip.text = element_text(size = 16)) +
+    scale_x_continuous(
+    breaks = every_10,
+    labels = plot_labels_10) +
+  # Add titles and labels
+  labs(
+    title = "Risk Levels of Dengue Outbreak in 2024",
+    subtitle = "Weekly incidence compared to the historical endemic channel (excluding epidemic years)",
+    y = "Incidence Coefficient (per 100,000 inhabitants)",
+    x = "Epidemiological Week",
+    caption = "Data from: DATASUS. Analysis and Visualization by the authors")+
+  facet_wrap(~municipality, scales = "free_y")
+
+g1
+```
+
