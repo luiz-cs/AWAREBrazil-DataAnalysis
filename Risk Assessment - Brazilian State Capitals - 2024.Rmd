@@ -37,11 +37,6 @@ loadfonts(device = "win")
 
 # 1. Gathering Data
 
-```{r get-data}
-dengue_full <- read_csv(here("dengue/Dengue_Provaveis_2014_2024.csv")) %>% 
-  mutate(epidemiologic_week = paste0(year, "w", week))
-```
-
 ```{r}
 #All arbovirsuses data:
 arboviruses_full <- read.csv(here("data/cases_all_virus_2014_2024.csv"))
