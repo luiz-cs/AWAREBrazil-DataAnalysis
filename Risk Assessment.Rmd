@@ -1,0 +1,1043 @@
+---
+title: "Risk Assessment of Arboviruses in Brazil (Country-wide, States and State Capitals)"
+date: "`r format(Sys.Date(), '%Y-%m-%d')`"
+lang: pt-BR
+output:
+  pdf_document:
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+if (.Platform$OS.type == "windows") {
+  Sys.setlocale("LC_CTYPE", "Portuguese_Brazil.1252")
+} else {
+  Sys.setlocale("LC_CTYPE", "pt_BR.UTF-8")
+}
+
+library(tidyverse)
+library(lubridate)
+library(zoo)
+library(ggplot2)
+library(here)
+library(haven)
+library(lubridate)
+library(readr)
+library(stringr)
+```
+
+---
+
+# Content:
+
+1.  Gathering Data
+2.  Preparing Data (Country, State, and Municipality)
+3.  Descriptive Incidence Graphs
+    3.1. Country-wide Incidence
+    3.2. State-level Incidence
+    3.3. Selected Municipalities Incidence
+4.  Risk Assessment Function
+5.  Risk Assessment - Country Level
+6.  Risk Assessment - State Level
+7.  Risk Assessment - Municipality Level
+8.  Control Diagrams - Country Level
+9.  Control Diagrams - State Level
+10. Control Diagrams - Municipality Level
+11. Risk Levels in 2024 - Country Level
+12. Risk Levels in 2024 - State Level
+13. Risk Levels in 2024 - Municipality Level
+
+---
+
+# 1. Gathering Data
+
+```{r gather-data}
+# All arbovirsuses data:
+arboviruses_full <- read_csv(here("Data/cases_all_virus_2014_2024.csv")) %>%
+  mutate(virus = str_to_title(virus)) # Make virus name case-consistent
+
+# Epidemiological week starting on the first week of the winter
+epiweek40 <- read_dta(
+  here("Data/epidemiological_week_startsweek40.dta"))
+
+#List of municipalities of interest
+codibge <- list(
+  "Rio Branco"      = "120040",
+  "Maceió"          = "270430",
+  "Macapá"          = "160030",
+  "Manaus"          = "130260",
+  "Salvador"        = "292740",
+  "Fortaleza"       = "230440",
+  "Brasília"        = "530010",
+  "Vitória"         = "320530",
+  "Goiânia"         = "520870",
+  "São Luís"        = "211130",
+  "Cuiabá"          = "510340",
+  "Campo Grande"    = "500270",
+  "Belo Horizonte"  = "310620",
+  "Belém"           = "150140",
+  "João Pessoa"     = "250750",
+  "Curitiba"        = "410690",
+  "Recife"          = "261160",
+  "Teresina"        = "221100",
+  "Rio de Janeiro"  = "330455",
+  "Natal"           = "240810",
+  "Porto Alegre"    = "431490",
+  "Porto Velho"     = "110020",
+  "Boa Vista"       = "140010",
+  "Florianópolis"   = "420540",
+  "São Paulo"       = "355030",
+  "Aracaju"         = "280030",
+  "Palmas"          = "172100")
+```
+
+---
+
+# 2. Preparing Data
+
+## Grouping by Municipality, State, and Country
+
+```{r group-data}
+## All Municipalities (Original)
+arboviruses <- arboviruses_full %>%
+  group_by(ibge, class_regiao, estado, municipality, year, week, virus) %>%
+  summarise(
+    cases = sum(likely_cases, na.rm = TRUE),
+    population = sum(population, na.rm = TRUE),
+    deaths = sum(deaths, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    incidence = ifelse(population > 0, cases / (population / 100000), 0),
+    wy = paste0(year, "w", as.integer(week))
+  ) %>%
+  full_join(epiweek40, by = "wy") %>%
+  group_by(municipality) %>%
+  arrange(year_week40, epidemiologic_week_startsweek40) %>%
+  filter(!is.na(municipality)) %>%
+  mutate(
+    yw = as.character(paste0(year_week40,"-", epidemiologic_week_startsweek40)),
+    epi_label = paste0(year_week40, "w", epidemiologic_week_startsweek40)
+  ) %>%
+  ungroup()
+
+## Selected Municipalities 
+arboviruses_muni <- arboviruses %>%
+  filter(ibge %in% codibge)
+
+## Grouping by State 
+arboviruses_state <- arboviruses_full %>%
+  group_by(estado, year, week, virus) %>%
+  summarise(
+    cases = sum(likely_cases, na.rm = TRUE),
+    population = sum(population, na.rm = TRUE),
+    deaths = sum(deaths, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    incidence = ifelse(population > 0, cases / (population / 100000), 0),
+    wy = paste0(year, "w", as.integer(week))
+  ) %>%
+  full_join(epiweek40, by = "wy") %>%
+  group_by(estado, virus) %>%
+  arrange(year_week40, epidemiologic_week_startsweek40) %>%
+  filter(!is.na(estado)) %>%
+  mutate(
+    yw = as.character(paste0(year_week40,"-", epidemiologic_week_startsweek40)),
+    epi_label = paste0(year_week40, "w", epidemiologic_week_startsweek40)
+  ) %>%
+  ungroup()
+
+## Grouping by Country 
+arboviruses_country <- arboviruses_full %>%
+  group_by(year, week, virus) %>%
+  summarise(
+    cases = sum(likely_cases, na.rm = TRUE),
+    population = sum(population, na.rm = TRUE),
+    deaths = sum(deaths, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    incidence = ifelse(population > 0, cases / (population / 100000), 0),
+    wy = paste0(year, "w", as.integer(week))
+  ) %>%
+  full_join(epiweek40, by = "wy") %>%
+  group_by(virus) %>%
+  arrange(year_week40, epidemiologic_week_startsweek40) %>%
+  # Adding a country column for consistency in the function
+  mutate(
+    country = "Brazil",
+    yw = as.character(paste0(year_week40,"-", epidemiologic_week_startsweek40)),
+    epi_label = paste0(year_week40, "w", epidemiologic_week_startsweek40)
+  ) %>%
+  ungroup()
+```
+
+---
+
+# 3. Descriptive Incidence Graphs
+
+## 3.1. Country-wide Incidence
+
+```{r incidence-country}
+# Dengue
+incidence_dengue_br <- arboviruses_country %>%
+  filter(virus == "Dengue") %>%
+  ggplot(aes(x = yw, y = incidence, group = 1)) +
+  geom_line(color = "steelblue") +
+  labs(
+    title = "Incidence of Dengue in Brazil",
+    x = "Epidemiological Week (Year-Week)",
+    y = "Incidence Rate (per 100,000 people)"
+  ) +
+  scale_x_discrete(breaks = sort(unique(arboviruses_country$yw))[seq(1, length(unique(arboviruses_country$yw)), by = 52)]) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 8))
+print(incidence_dengue_br)
+ggsave(here("Graphs/Incidence of Dengue in Brazil.png"), incidence_dengue_br, height = 15, width = 15, dpi = 600, create.dir = T)
+
+# Zika
+incidence_zika_br <- arboviruses_country %>%
+  filter(virus == "Zika") %>%
+  ggplot(aes(x = yw, y = incidence, group = 1)) +
+  geom_line(color = "steelblue") +
+  labs(
+    title = "Incidence of Zika in Brazil",
+    x = "Epidemiological Week (Year-Week)",
+    y = "Incidence Rate (per 100,000 people)"
+  ) +
+  scale_x_discrete(breaks = sort(unique(arboviruses_country$yw))[seq(1, length(unique(arboviruses_country$yw)), by = 52)]) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 8))
+print(incidence_zika_br)
+ggsave(here("Graphs/Incidence of Zika in Brazil.png"), incidence_zika_br, height = 15, width = 15, dpi = 600, create.dir = T)
+
+# Chikungunya
+incidence_chik_country <- arboviruses_country %>%
+  filter(virus == "Chikungunya") %>%
+  ggplot(aes(x = yw, y = incidence, group = 1)) +
+  geom_line(color = "steelblue") +
+  labs(
+    title = "Incidence of Chikungunya in Brazil",
+    x = "Epidemiological Week (Year-Week)",
+    y = "Incidence Rate (per 100,000 people)"
+  ) +
+  scale_x_discrete(breaks = sort(unique(arboviruses_country$yw))[seq(1, length(unique(arboviruses_country$yw)), by = 52)]) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 8))
+print(incidence_chik_country)
+ggsave(here("Graphs/Incidence of Chikungunya in Brazil.png"), incidence_chik_country, height = 15, width = 15, dpi = 600, create.dir = T)
+```
+
+## 3.2. State-level Incidence
+
+```{r incidence-state}
+# Dengue
+incidence_dengue_state <- arboviruses_state %>%
+  filter(virus == "Dengue") %>%
+  ggplot(aes(x = yw, y = incidence, group = 1)) +
+  geom_line(color = "steelblue") +
+  facet_wrap(~estado, scales = "free_y") +
+  labs(
+    title = "Incidence of Dengue per State",
+    x = "Epidemiological Week (Year-Week)",
+    y = "Incidence Rate (per 100,000 people)"
+  ) +
+  scale_x_discrete(breaks = sort(unique(arboviruses_state$yw))[seq(1, length(unique(arboviruses_state$yw)), by = 52)]) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 8))
+print(incidence_dengue_state)
+ggsave(here("Graphs/Incidence of Dengue per State.png"), incidence_dengue_state, height = 15, width = 15, dpi = 600, create.dir = T)
+
+# Zika
+incidence_zika_state <- arboviruses_state %>%
+  filter(virus == "Zika") %>%
+  ggplot(aes(x = yw, y = incidence, group = 1)) +
+  geom_line(color = "steelblue") +
+  facet_wrap(~estado, scales = "free_y") +
+  labs(
+    title = "Incidence of Zika per State",
+    x = "Epidemiological Week (Year-Week)",
+    y = "Incidence Rate (per 100,000 people)"
+  ) +
+  scale_x_discrete(breaks = sort(unique(arboviruses_state$yw))[seq(1, length(unique(arboviruses_state$yw)), by = 52)]) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 8))
+print(incidence_zika_state)
+ggsave(here("Graphs/Incidence of Zika per State.png"), incidence_zika_state, height = 15, width = 15, dpi = 600, create.dir = T)
+
+# Chikungunya
+incidence_chik_state <- arboviruses_state %>%
+  filter(virus == "Chikungunya") %>%
+  ggplot(aes(x = yw, y = incidence, group = 1)) +
+  geom_line(color = "steelblue") +
+  facet_wrap(~estado, scales = "free_y") +
+  labs(
+    title = "Incidence of Chikungunya per State",
+    x = "Epidemiological Week (Year-Week)",
+    y = "Incidence Rate (per 100,000 people)"
+  ) +
+  scale_x_discrete(breaks = sort(unique(arboviruses_state$yw))[seq(1, length(unique(arboviruses_state$yw)), by = 52)]) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 8))
+print(incidence_chik_state)
+ggsave(here("Graphs/Incidence of Chikungunya per State.png"), incidence_chik_state, height = 15, width = 15, dpi = 600, create.dir = T)
+```
+
+## 3.3. Selected Municipalities Incidence
+
+```{r incidence-muni}
+# Dengue
+incidence_dengue_muni <- arboviruses_muni %>%
+  filter(virus == "Dengue") %>%
+  ggplot(aes(x = yw, y = incidence, group = 1)) +
+  geom_line(color = "steelblue") +
+  facet_wrap(~municipality, scales = "free_y") +
+  labs(
+    title = "Weekly Dengue Incidence per Selected Municipalities",
+    x = "Epidemiological Week (Year-Week)",
+    y = "Incidence Rate (per 100,000 people)"
+  ) +
+  scale_x_discrete(breaks = sort(unique(arboviruses_muni$yw))[seq(1, length(unique(arboviruses_muni$yw)), by = 52)]) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 8))
+print(incidence_dengue_muni)
+ggsave(here("Graphs/Incidence of Dengue per Selected Municipalities.png"), incidence_dengue_muni, height = 15, width = 15, dpi = 600, create.dir = T)
+
+# Zika
+incidence_zika_muni <- arboviruses_muni %>%
+  filter(virus == "Zika") %>%
+  ggplot(aes(x = yw, y = incidence, group = 1)) +
+  geom_line(color = "steelblue") +
+  facet_wrap(~municipality, scales = "free_y") +
+  labs(
+    title = "Incidence of Zika per Selected Municipalities",
+    x = "Epidemiological Week",
+    y = "Incidence Rate (per 100,000 people)"
+  ) +
+  scale_x_discrete(breaks = sort(unique(arboviruses_muni$yw))[seq(1, length(unique(arboviruses_muni$yw)), by = 52)]) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 8))
+print(incidence_zika_muni)
+ggsave(here("Graphs/Incidence of Zika per Selected Municipalities.png"), incidence_zika_muni, height = 15, width = 15, dpi = 600, create.dir = T)
+
+# Chikungunya
+incidence_chik_muni <- arboviruses_muni %>%
+  filter(virus == "Chikungunya") %>%
+  ggplot(aes(x = yw, y = incidence, group = 1)) +
+  geom_line(color = "steelblue") +
+  facet_wrap(~municipality, scales = "free_y") +
+  labs(
+    title = "Incidence of Chikungunya per Selected Municipalities",
+    x = "Epidemiological Week (Year-Week)",
+    y = "Incidence Rate (per 100,000 people)"
+  ) +
+  scale_x_discrete(breaks = sort(unique(arboviruses_muni$yw))[seq(1, length(unique(arboviruses_muni$yw)), by = 52)]) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 8))
+print(incidence_chik_muni)
+ggsave(here("Graphs/Incidence of Chikungunya per Selected Municipalities.png"), incidence_chik_muni, height = 15, width = 15, dpi = 600, create.dir = T)
+```
+
+# 4. Risk Assessment Function
+
+```{r risk-function}
+# Helper function to get location name for logging
+get_location_name <- function(df) {
+  if ("municipality" %in% names(df)) {
+    return(paste("municipality:", unique(df$municipality)))
+  } else if ("estado" %in% names(df)) {
+    return(paste("state:", unique(df$estado)))
+  } else if ("country" %in% names(df)) {
+    return(paste("country:", unique(df$country)))
+  } else {
+    return("unknown location")
+  }
+}
+
+risk_analysis <- function(df, analysis_year = 2024) {
+  # Defines a function that takes a dataframe 'df' and an 'analysis_year'.
+
+  tryCatch({
+    # If an error occurs, the code will jump to the 'error' section at the end.
+    
+    location_name <- get_location_name(df)
+
+    # === Part 1: Identify Epidemic Years based on Risk Score ===
+    # The goal of this part is to analyze all historical data to determine which years behaved like epidemics.
+
+    # Create a preliminary endemic channel using ALL historical data.
+    preliminary_channel <- df %>%
+      # 1. Select only data from years before the analysis_year.
+      filter(year_week40 < analysis_year) %>%
+      # 2. Group data by the epidemiological week number.
+      group_by(week2 = epidemiologic_week_startsweek40) %>%
+      # 3. For each week, calculate the historical average and standard deviation of incidence.
+      summarise(avg_incidence = mean(incidence, na.rm = TRUE), sd_incidence = sd(incidence, na.rm = TRUE), .groups = "drop") %>%
+      # 4. Calculate the upper alert threshold (95% confidence interval).
+      mutate(high = avg_incidence + (1.96 * sd_incidence))
+
+    # Check if there is enough historical data to proceed.
+    if(nrow(preliminary_channel) == 0) return(NULL)
+
+    # Assess all historical years against the preliminary channel to find epidemic years.
+    risk_all_years <- df %>%
+      # 1. Select only historical data.
+      filter(year_week40 < analysis_year) %>%
+      # 2. Add the calculated avg_incidence and high threshold to each row based on its week.
+      left_join(preliminary_channel, by = c("epidemiologic_week_startsweek40" = "week2")) %>%
+      # 3. Group the data by year to analyze each year independently.
+      group_by(year_week40) %>%
+      # 4. Ensure weeks are sorted chronologically within each year.
+      arrange(epidemiologic_week_startsweek40, .by_group = TRUE) %>%
+      # 5. Create several new columns (triggers) based on different risk conditions.
+      mutate(
+        # Trigger: Is incidence above average but below the high threshold? (1=yes, 0=no)
+        increasedincidence = ifelse(incidence > avg_incidence & incidence < high, 1, 0),
+        # Trigger: Has 'increasedincidence' been true for 4 straight weeks?
+        increasedincidence4weeks = zoo::rollapply(increasedincidence, 4, function(x) as.integer(all(x == 1)), fill = NA, align = "right"),
+        # Trigger: Is incidence above the high threshold?
+        increasedincidencehigh = ifelse(incidence > high, 1, 0),
+        # Trigger: Has 'increasedincidencehigh' been true for 4 straight weeks?
+        increasedincidencehigh4weeks = zoo::rollapply(increasedincidencehigh, 4, function(x) as.integer(all(x == 1)), fill = NA, align = "right"),
+        # Trigger: Did deaths increase from the previous week?
+        increaseddeath = ifelse(deaths > lag(deaths), 1, 0),
+        # Trigger: Has 'increaseddeath' been true for 4 straight weeks?
+        increaseddeath4w = zoo::rollapply(increaseddeath, 4, function(x) as.integer(all(x == 1)), fill = NA, align = "right"),
+        # Calculate log of incidence to check for exponential growth.
+        ln_incidence = ifelse(incidence > 0, log(incidence), 0),
+        # Calculate the week-over-week change in log(incidence).
+        exponentialgrowth = ln_incidence - dplyr::lag(ln_incidence),
+        # Trigger: Is growth exponential AND is incidence above the high threshold?
+        increasedexpgrowth = ifelse(exponentialgrowth > 0 & incidence > high, 1, 0),
+        # Trigger: Has 'increaseddeath' been true for 5 straight weeks?
+        increaseddeath5w = zoo::rollapply(increaseddeath, 5, function(x) as.integer(all(x == 1)), fill = NA, align = "right")
+      ) %>%
+      # Assign risk levels based on the triggers.
+      mutate(
+        # Risk Level 1: Sustained increase in cases.
+        risk_level1 = if_else(increasedincidence4weeks == 1, 1L, 0L),
+        # Risk Level 2: High alert for cases or sustained increase in deaths.
+        risk_level2 = if_else(increasedincidencehigh4weeks == 1 | increaseddeath4w == 1, 2L, 0L),
+        # Risk Level 3: Epidemic level based on exponential growth or prolonged increase in deaths.
+        risk_level3 = if_else(increasedexpgrowth == 1 | increaseddeath5w == 1, 3L, 0L),
+        # The final risk assessment for a week is the highest level triggered.
+        riskassessment = pmax(risk_level1, risk_level2, risk_level3, na.rm = TRUE)
+      )
+
+    # From the historical assessment, create a list of years that hit risk level 3.
+    epidemic_years <- risk_all_years %>% filter(riskassessment >= 3) %>% distinct(year_week40) %>% pull(year_week40)
+    # Create a list of all available historical years.
+    all_hist_years <- unique(df$year_week40[df$year_week40 < analysis_year])
+    # Create the list of non-epidemic years by removing epidemic years from all historical years.
+    non_epidemic_years <- all_hist_years[!all_hist_years %in% epidemic_years]
+    # Select only the 5 most recent non-epidemic years for the final baseline.
+    non_epidemic_years <- non_epidemic_years %>%
+      sort()
+
+    # Fallback condition:  Skips the location if there are not enough non-epidemic years to build a reliable baseline (at least 2 are needed).
+    if (length(non_epidemic_years) < 2) {
+      
+      message(paste("Skipping", 
+                    location_name,
+                    "| Reason: Fewer than 2 non-epidemic years found."))
+                      
+      return(NULL)
+    }
+
+    # === Part 2: Build Final Control Diagram and Assess the Current Year ===
+    # The goal of this part is to use the clean "non-epidemic" years to build a
+    # final, reliable baseline and assess the current analysis_year against it.
+
+    # Isolate the incidence and death data for the current analysis_year.
+    incidence_current_year <- df %>% filter(year_week40 == analysis_year) %>% transmute(incidence_current = incidence, deaths, week2 = epidemiologic_week_startsweek40)
+
+    # Build the final, clean endemic channel.
+    control_data <- df %>%
+      # 1. IMPORTANT: Filter for only the selected non-epidemic years.
+      filter(year_week40 %in% non_epidemic_years) %>%
+      # 2. Group by week.
+      group_by(week2 = epidemiologic_week_startsweek40) %>%
+      # 3. Recalculate the average and standard deviation using this cleaner data.
+      summarise(avg_incidence = mean(incidence, na.rm = TRUE), sd_incidence = sd(incidence, na.rm = TRUE), .groups = "drop") %>%
+      # 4. Create the final upper and lower thresholds for the control diagram.
+      mutate(high = avg_incidence + 1.96*sd_incidence, low = pmax(0, avg_incidence - 1.96*sd_incidence)) %>%
+      # 5. Join the final channel data with the current year's data.
+      left_join(incidence_current_year, by = "week2")
+
+    # Perform the final risk assessment for the analysis_year.
+    risk_final <- control_data %>%
+      arrange(week2) %>%
+      mutate(
+        increasedincidence = ifelse(incidence_current > avg_incidence & incidence_current < high, 1, 0),
+        increasedincidence4weeks = zoo::rollapply(increasedincidence, 4, function(x) as.integer(all(x==1)), fill=NA, align="right"),
+        increasedincidencehigh = ifelse(incidence_current > high, 1, 0),
+        increasedincidencehigh4weeks = zoo::rollapply(increasedincidencehigh, 4, function(x)as.integer(all(x==1)), fill=NA, align="right"),
+        increaseddeath = ifelse(deaths > lag(deaths), 1, 0),
+        increaseddeath4w = zoo::rollapply(increaseddeath, 4, function(x) as.integer(all(x==1)), fill=NA, align="right"),
+        ln_incidence = ifelse(incidence_current > 0, log(incidence_current), 0),
+        exponentialgrowth = ln_incidence - dplyr::lag(ln_incidence),
+        increasedexpgrowth = ifelse(exponentialgrowth > 0 & incidence_current > high, 1, 0),
+        increaseddeath5w = zoo::rollapply(increaseddeath, 5, function(x) as.integer(all(x==1)), fill=NA, align="right")
+      ) %>%
+      mutate(across(c(increasedincidence4weeks, increasedincidencehigh4weeks, increaseddeath4w, increasedexpgrowth, increaseddeath5w), ~replace_na(., 0))) %>%
+      mutate(
+        risk_level1 = if_else(increasedincidence4weeks == 1, 1L, 0L),
+        risk_level2 = if_else(increasedincidencehigh4weeks == 1 | increaseddeath4w == 1, 2L, 0L),
+        risk_level3 = if_else(increasedexpgrowth == 1 | increaseddeath5w == 1, 3L, 0L),
+        riskassessment = pmax(risk_level1, risk_level2, risk_level3, na.rm = TRUE)
+      )
+
+    # Return the results as a list containing two objects.
+    return(list(risk_final = risk_final, epidemic_years = epidemic_years))
+
+  }, error = function(e) {
+    # If any error occurred in the 'try' block, this code will run.
+    location_name <- try(get_location_name(df), silent = TRUE)
+    if (inherits(location_name, "try-error")) location_name <- "unknown location"
+    message(paste("Could not process", location_name, "| Error:", e$message))
+    return(NULL)
+  })
+}
+```
+
+# 5. Risk Assessment - Country Level
+
+## Running risk assessment
+
+```{r risks-run-country}
+nested_data_country <- arboviruses_country %>%
+  group_by(country, virus) %>%
+  nest()
+
+results_country <- nested_data_country %>%
+  mutate(risk_analysis_results = map(data, risk_analysis))
+
+risk_2024_country <- results_country %>%
+  mutate(risk_data = map(risk_analysis_results, ~ .x$risk_final)) %>%
+  select(country, virus, risk_data) %>%
+  unnest(cols = c(risk_data))
+```
+
+## Table of epidemic years for Brazil
+
+```{r table-epiyears-country}
+extract_epidemic_years <- function(model_output) {
+  if (!is.null(model_output) && "epidemic_years" %in% names(model_output)) {
+    if (length(model_output$epidemic_years) > 0) {
+      return(tibble(epidemic_year = as.character(model_output$epidemic_years)))
+    }
+  }
+  return(tibble(epidemic_year = character(0)))
+}
+
+epidemic_years_data_country <- results_country %>%
+  mutate(epidemic_years = map(risk_analysis_results, extract_epidemic_years)) %>%
+  select(country, virus, epidemic_years) %>%
+  unnest(cols = c(epidemic_years))
+
+epidemic_summary_table_country <- epidemic_years_data_country %>%
+  group_by(country, virus) %>%
+  summarise(
+    epidemic_years_list = paste(sort(unique(epidemic_year)), collapse = ", "),
+    .groups = "drop"
+  ) %>%
+  rename(
+    `Country` = country,
+    `Virus`= virus,
+    `Epidemic Years` = epidemic_years_list
+  )
+
+knitr::kable(epidemic_summary_table_country, caption = "Epidemic Years of Arboviruses for Brazil")
+```
+
+## Plotting Risk Assessment for Brazil in 2024
+
+```{r risk-country-plots}
+risk_plot_country <- risk_2024_country %>%
+  ggplot(aes(x = week2, y = riskassessment, group = 1)) +
+  geom_step(color = "firebrick") +
+  facet_wrap(~ virus) +
+  labs(title = "Arbovirus Risk Assessment for Brazil in 2024", x = "Epidemiological Week", y = "Calculated Risk Level") +
+  scale_y_continuous(breaks = 0:3, limits = c(0, 3)) +
+  theme_bw()
+print(risk_plot_country)
+ggsave(here("Graphs/Arbovirus Risk Assessment for Brazil in 2024.png"), risk_plot_country, height = 15, width = 15, dpi = 600, create.dir = T)
+```
+
+---
+
+# 6. Risk Assessment - State Level
+
+## Running risk assessment
+
+```{r risks-run-state}
+nested_data_state <- arboviruses_state %>%
+  group_by(estado, virus) %>%
+  nest()
+
+results_state <- nested_data_state %>%
+  mutate(risk_analysis_results = map(data, risk_analysis))
+
+risk_2024_state <- results_state %>%
+  mutate(risk_data = map(risk_analysis_results, ~ .x$risk_final)) %>%
+  select(estado, virus, risk_data) %>%
+  unnest(cols = c(risk_data))
+```
+
+## Table of epidemic years per state
+
+```{r table-epiyears-state}
+epidemic_years_data_state <- results_state %>%
+  mutate(epidemic_years = map(risk_analysis_results, extract_epidemic_years)) %>%
+  select(estado, virus, epidemic_years) %>%
+  unnest(cols = c(epidemic_years))
+
+epidemic_summary_table_state <- epidemic_years_data_state %>%
+  group_by(estado, virus) %>%
+  summarise(
+    epidemic_years_list = paste(sort(unique(epidemic_year)), collapse = ", "),
+    .groups = "drop"
+  ) %>%
+  rename(
+    `State` = estado,
+    `Virus`= virus,
+    `Epidemic Years` = epidemic_years_list
+  )
+
+knitr::kable(epidemic_summary_table_state, caption = "Epidemic Years of Arboviruses by State")
+```
+
+## Plotting Risk Assessment per State in 2024
+
+```{r risk-state-plots}
+# Dengue
+dengue_risk_2024_state <- risk_2024_state %>%
+  filter(virus == "Dengue") %>%
+  ggplot(aes(x = week2, y = riskassessment, group = 1)) +
+  geom_step(color = "firebrick") +
+  facet_wrap(~ estado) +
+  labs(title = "Dengue Risk Assessment per State in 2024", x = "Epidemiological Week", y = "Calculated Risk Level") +
+  scale_y_continuous(breaks = 0:3, limits = c(0, 3)) +
+  theme_bw()
+print(dengue_risk_2024_state)
+ggsave(here("Graphs/Dengue Risk Assessment per State in 2024.png"), dengue_risk_2024_state, height = 15, width = 15, dpi = 600, create.dir = T)
+
+# Zika
+zika_risk_2024_state <- risk_2024_state %>%
+  filter(virus == "Zika") %>%
+  ggplot(aes(x = week2, y = riskassessment, group = 1)) +
+  geom_step(color = "firebrick") +
+  facet_wrap(~ estado) +
+  labs(title = "Zika Risk Assessment per State in 2024", x = "Epidemiological Week", y = "Calculated Risk Level") +
+  scale_y_continuous(breaks = 0:3, limits = c(0, 3)) +
+  theme_bw()
+print(zika_risk_2024_state)
+ggsave(here("Graphs/Zika Risk Assessment per State in 2024.png"), zika_risk_2024_state, height = 15, width = 15, dpi = 600, create.dir = T)
+
+# Chikungunya
+chik_risk_2024_state <- risk_2024_state %>%
+  filter(virus == "Chikungunya") %>%
+  ggplot(aes(x = week2, y = riskassessment, group = 1)) +
+  geom_step(color = "firebrick") +
+  facet_wrap(~ estado) +
+  labs(title = "Chikungunya Risk Assessment per State in 2024", x = "Epidemiological Week", y = "Calculated Risk Level") +
+  scale_y_continuous(breaks = 0:3, limits = c(0, 3)) +
+  theme_bw()
+print(chik_risk_2024_state)
+ggsave(here("Graphs/Chikungunya Risk Assessment per State in 2024.png"), chik_risk_2024_state, height = 15, width = 15, dpi = 600, create.dir = T)
+```
+
+---
+
+# 7. Risk Assessment - Municipality Level
+
+## Running risk assessment
+
+```{r risks-run-muni}
+# Nest the data, creating a list-column with a dataframe for each municipality
+nested_data_muni <- arboviruses_muni %>%
+  group_by(municipality, virus) %>%
+  nest()
+
+# Apply function to each nested dataframe
+results_muni <- nested_data_muni %>%
+  mutate(risk_analysis_results = map(data, risk_analysis))
+
+# Unnest the results for the 2024 risk assessment
+risk_2024_muni <- results_muni %>%
+  # Safely extract the 'risk_final' tibble from the list
+  mutate(risk_data = map(risk_analysis_results, ~ .x$risk_final)) %>%
+  select(municipality, virus, risk_data) %>%
+  unnest(cols = c(risk_data))
+```
+
+## Table of epidemic years per municipality
+
+```{r table-epiyears-muni}
+# Extract and unnest the epidemic years data
+epidemic_years_data_muni <- results_muni %>%
+  mutate(epidemic_years = map(risk_analysis_results, extract_epidemic_years)) %>%
+  select(municipality, virus, epidemic_years) %>%
+  unnest(cols = c(epidemic_years))
+
+# Create a summary table
+epidemic_summary_table_muni <- epidemic_years_data_muni %>%
+  group_by(municipality, virus) %>%
+  summarise(
+    epidemic_years_list = paste(sort(unique(epidemic_year)), collapse = ", "),
+    .groups = "drop"
+  ) %>%
+  rename(
+    `Municipality` = municipality,
+    `Virus`= virus,
+    `Epidemic Years` = epidemic_years_list
+  )
+
+# Table
+knitr::kable(epidemic_summary_table_muni, caption = "Epidemic Years of Arboviruses by Municipality")
+```
+
+## Plotting Risk Assessment per Selected Municipalities in 2024
+
+```{r risk-muni-plots}
+# Dengue
+dengue_risk_2024_muni <- risk_2024_muni %>%
+  filter(virus == "Dengue") %>%
+  ggplot(aes(x = week2, y = riskassessment, group = 1)) +
+  geom_step(color = "firebrick") +
+  facet_wrap(~ municipality) +
+  labs(
+    title = "Dengue Risk Assessment per Selected Municipalities in 2024",
+    x = "Epidemiological Week",
+    y = "Calculated Risk Level"
+  ) +
+  scale_y_continuous(breaks = 0:3, limits = c(0, 3)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 8))
+print(dengue_risk_2024_muni)
+ggsave(here("Graphs/Dengue Risk Assessment per Selected Municipalities in 2024.png"), dengue_risk_2024_muni, height = 15, width = 15, dpi = 600, create.dir = T)
+
+# Zika
+zika_risk_2024_muni <- risk_2024_muni %>%
+  filter(virus == "Zika") %>%
+  ggplot(aes(x = week2, y = riskassessment, group = 1)) +
+  geom_step(color = "firebrick") +
+  facet_wrap(~ municipality) +
+  labs(
+    title = "Zika Risk Assessment per Selected Municipalities in 2024",
+    x = "Epidemiological Week",
+    y = "Calculated Risk Level"
+  ) +
+  scale_y_continuous(breaks = 0:3, limits = c(0, 3)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 8))
+print(zika_risk_2024_muni)
+ggsave(here("Graphs/Zika Risk Assessment per Selected Municipalities in 2024.png"), zika_risk_2024_muni, height = 15, width = 15, dpi = 600, create.dir = T)
+
+# Chikungunya
+chik_risk_2024_muni <- risk_2024_muni %>%
+  filter(virus == "Chikungunya") %>%
+  ggplot(aes(x = week2, y = riskassessment, group = 1)) +
+  geom_step(color = "firebrick") +
+  facet_wrap(~ municipality) +
+  labs(
+    title = "Chikungunya Risk Assessment per Selected Municipalities in 2024",
+    x = "Epidemiological Week",
+    y = "Calculated Risk Level"
+  ) +
+  scale_y_continuous(breaks = 0:3, limits = c(0, 3)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 8))
+print(chik_risk_2024_muni)
+ggsave(here("Graphs/Chikungunya Risk Assessment per Selected Municipalities in 2024.png"), chik_risk_2024_muni, height = 15, width = 15, dpi = 600, create.dir = T)
+```
+
+# 8. Control Diagrams - Country Level
+
+```{r control-diagrams-country}
+control_plot_country <- risk_2024_country %>%
+  ggplot(aes(x = week2)) +
+  geom_ribbon(aes(ymin = low, ymax = high), fill = "darkgrey", alpha = 0.8) +
+  geom_line(aes(y = avg_incidence, linetype = "Historical Average", group = 1), color = "black") +
+  geom_line(aes(y = incidence_current, linetype = "2024 Incidence", group = 1), color = "red") +
+  facet_wrap(~ virus, scales = "free_y") +
+  scale_linetype_manual(name = "Legend", values = c("Historical Average" = "dashed", "2024 Incidence" = "solid")) +
+  labs(title = "Control Diagrams for Arbovirus Incidence in Brazil (2024)", y = "Incidence Rate (per 100,000)", x = "Epidemiological Week") +
+  theme_bw() + theme(legend.position = "top")
+print(control_plot_country)
+ggsave(here("Graphs/Control Diagrams for Arbovirus Incidence in Brazil 2024.png"), control_plot_country, height = 15, width = 15, dpi = 600, create.dir = T)
+```
+
+---
+
+# 9. Control Diagrams - State Level
+
+```{r control-diagrams-state}
+# Dengue
+dengue_control_d_state <- risk_2024_state %>%
+  filter(virus == "Dengue") %>%
+  ggplot(aes(x = week2)) +
+  geom_ribbon(aes(ymin = low, ymax = high), fill = "darkgrey", alpha = 0.8) +
+  geom_line(aes(y = avg_incidence, linetype = "Historical Average", group = 1), color = "black") +
+  geom_line(aes(y = incidence_current, linetype = "2024 Incidence", group = 1), color = "red") +
+  facet_wrap(~ estado, scales = "free_y") +
+  scale_linetype_manual(name = "Legend", values = c("Historical Average" = "dashed", "2024 Incidence" = "solid")) +
+  labs(title = "Control Diagrams for Dengue Incidence per State (2024)", y = "Incidence Rate (per 100,000)", x = "Epidemiological Week") +
+  theme_bw() + theme(legend.position = "top")
+print(dengue_control_d_state)
+ggsave(here("Graphs/Control Diagrams for Dengue Incidence per State 2024.png"), dengue_control_d_state, height = 15, width = 15, dpi = 600, create.dir = T)
+
+# Zika
+zika_control_d_state <- risk_2024_state %>%
+  filter(virus == "Zika") %>%
+  ggplot(aes(x = week2)) +
+  geom_ribbon(aes(ymin = low, ymax = high), fill = "darkgrey", alpha = 0.8) +
+  geom_line(aes(y = avg_incidence, linetype = "Historical Average", group = 1), color = "black") +
+  geom_line(aes(y = incidence_current, linetype = "2024 Incidence", group = 1), color = "red") +
+  facet_wrap(~ estado, scales = "free_y") +
+  scale_linetype_manual(name = "Legend", values = c("Historical Average" = "dashed", "2024 Incidence" = "solid")) +
+  labs(title = "Control Diagrams for Zika Incidence per State (2024)", y = "Incidence Rate (per 100,000)", x = "Epidemiological Week") +
+  theme_bw() + theme(legend.position = "top")
+print(zika_control_d_state)
+ggsave(here("Graphs/Control Diagrams for Zika Incidence per State 2024.png"), zika_control_d_state, height = 15, width = 15, dpi = 600, create.dir = T)
+
+# Chikungunya
+chik_control_d_state <- risk_2024_state %>%
+  filter(virus == "Chikungunya") %>%
+  ggplot(aes(x = week2)) +
+  geom_ribbon(aes(ymin = low, ymax = high), fill = "darkgrey", alpha = 0.8) +
+  geom_line(aes(y = avg_incidence, linetype = "Historical Average", group = 1), color = "black") +
+  geom_line(aes(y = incidence_current, linetype = "2024 Incidence", group = 1), color = "red") +
+  facet_wrap(~ estado, scales = "free_y") +
+  scale_linetype_manual(name = "Legend", values = c("Historical Average" = "dashed", "2024 Incidence" = "solid")) +
+  labs(title = "Control Diagrams for Chikungunya Incidence per State (2024)", y = "Incidence Rate (per 100,000)", x = "Epidemiological Week") +
+  theme_bw() + theme(legend.position = "top")
+print(chik_control_d_state)
+ggsave(here("Graphs/Control Diagrams for Chikungunya Incidence per State 2024.png"), chik_control_d_state, height = 15, width = 15, dpi = 600, create.dir = T)
+```
+
+---
+
+# 10. Control Diagrams - Municipality Level
+
+```{r control-diagrams-muni}
+# Dengue
+dengue_control_d_muni <- risk_2024_muni %>%
+  filter(virus == "Dengue") %>%
+  ggplot(aes(x = week2)) +
+  geom_ribbon(aes(ymin = low, ymax = high), fill = "darkgrey", alpha = 0.8) +
+  geom_line(aes(y = avg_incidence, linetype = "Historical Average", group = 1), color = "black") +
+  geom_line(aes(y = incidence_current, linetype = "2024 Incidence", group = 1), color = "red") +
+  facet_wrap(~ municipality, scales = "free_y") +
+  scale_linetype_manual(name = "Legend", values = c("Historical Average" = "dashed", "2024 Incidence" = "solid")) +
+  labs(title = "Control Diagrams for Dengue Incidence per Selected Municipalities (2024)", subtitle = "2024 Incidence vs. Non-Epidemic Historical Average", y = "Incidence Rate (per 100,000)", x = "Epidemiological Week") +
+  theme_bw() + theme(legend.position = "top")
+print(dengue_control_d_muni)
+ggsave(here("Graphs/Control Diagrams for Dengue Incidence per Selected Municipalities 2024.png"), dengue_control_d_muni, height = 15, width = 15, dpi = 600, create.dir = T)
+
+# Zika
+zika_control_d_muni <- risk_2024_muni %>%
+  filter(virus == "Zika") %>%
+  ggplot(aes(x = week2)) +
+  geom_ribbon(aes(ymin = low, ymax = high), fill = "darkgrey", alpha = 0.8) +
+  geom_line(aes(y = avg_incidence, linetype = "Historical Average", group = 1), color = "black") +
+  geom_line(aes(y = incidence_current, linetype = "2024 Incidence", group = 1), color = "red") +
+  facet_wrap(~ municipality, scales = "free_y") +
+  scale_linetype_manual(name = "Legend", values = c("Historical Average" = "dashed", "2024 Incidence" = "solid")) +
+  labs(title = "Control Diagrams for Zika Incidence per Selected Municipalities (2024)", subtitle = "2024 Incidence vs. Non-Epidemic Historical Average", y = "Incidence Rate (per 100,000)", x = "Epidemiological Week") +
+  theme_bw() + theme(legend.position = "top")
+print(zika_control_d_muni)
+ggsave(here("Graphs/Control Diagrams for Zika Incidence per Selected Municipalities 2024.png"), zika_control_d_muni, height = 15, width = 15, dpi = 600, create.dir = T)
+
+# Chikungunya
+chik_control_d_muni <- risk_2024_muni %>%
+  filter(virus == "Chikungunya") %>%
+  ggplot(aes(x = week2)) +
+  geom_ribbon(aes(ymin = low, ymax = high), fill = "darkgrey", alpha = 0.8) +
+  geom_line(aes(y = avg_incidence, linetype = "Historical Average", group = 1), color = "black") +
+  geom_line(aes(y = incidence_current, linetype = "2024 Incidence", group = 1), color = "red") +
+  facet_wrap(~ municipality, scales = "free_y") +
+  scale_linetype_manual(name = "Legend", values = c("Historical Average" = "dashed", "2024 Incidence" = "solid")) +
+  labs(title = "Control Diagrams for Chikungunya Incidence per Selected Municipalities (2024)", subtitle = "2024 Incidence vs. Non-Epidemic Historical Average", y = "Incidence Rate (per 100,000)", x = "Epidemiological Week") +
+  theme_bw() + theme(legend.position = "top")
+print(chik_control_d_muni)
+ggsave(here("Graphs/Control Diagrams for Chikungunya Incidence per Selected Municipalities 2024.png"), chik_control_d_muni, height = 15, width = 15, dpi = 600, create.dir = T)
+```
+
+---
+
+# 11. Risk Levels in 2024 - Country Level
+
+```{r risk-data-country}
+risk_2024_country <- risk_2024_country %>%
+  filter(!is.na(country)) %>%
+  mutate(week2 = as.numeric(week2),
+         riskassessment = factor(riskassessment, levels = c("0", "1", "2", "3")))
+
+every_10_country <- seq(min(risk_2024_country$week2, na.rm = TRUE), max(risk_2024_country$week2, na.rm = TRUE), by = 10)
+```
+
+```{r risk-plots-country}
+risk_level_plot_country <- risk_2024_country %>%
+  ggplot(aes(x = week2)) +
+  geom_rect(aes(xmin = week2, xmax = week2 + 1, ymin = low, ymax = high), fill = "darkgrey")+
+  geom_rect(aes(xmin = week2, xmax = week2 + 1, ymin = 0, ymax = incidence_current, fill = riskassessment)) +
+  geom_line(aes(y = avg_incidence, color = "Average Incidence", linetype = "Average Incidence"), size = 1) +
+  theme_bw() +
+  scale_color_manual(name = "Legend", values = c("Average Incidence" = "blue")) +
+  scale_linetype_manual(name = "Legend",  values = c("Average Incidence" = "dashed")) +
+  scale_fill_manual(name = "Risk Level & Baseline", values = c("0" = "#07E000", "1" = "#D9E000", "2" = "#E07000", "3" = "#E10000"), labels = c("0" = "Level 0 - Normal", "1" = "Level 1 - Alert", "2" = "Level 2 - High", "3" = "Level 3 - Epidemic")) +
+  theme(legend.position = "bottom") +
+  scale_x_continuous(breaks = every_10_country) +
+  labs(title = "Risk Levels of Arbovirus Outbreaks in Brazil in 2024", y = "Incidence Coefficient (per 100,000 inhabitants)", x = "Epidemiological Week")+
+  facet_wrap(~virus, scales = "free_y", ncol = 3)
+print(risk_level_plot_country)
+ggsave(here("Graphs/Risk Levels of Arbovirus Outbreaks in Brazil 2024.png"), risk_level_plot_country, height = 15, width = 15, dpi = 600, create.dir = T)
+```
+
+---
+
+# 12. Risk Levels in 2024 - State Level
+
+```{r risk-data-state}
+risk_2024_state <- risk_2024_state %>%
+  filter(!is.na(estado)) %>%
+  mutate(week2 = as.numeric(week2),
+         riskassessment = factor(riskassessment, levels = c("0", "1", "2", "3")))
+
+every_10_state <- seq(min(risk_2024_state$week2, na.rm = TRUE), max(risk_2024_state$week2, na.rm = TRUE), by = 10)
+```
+
+```{r risk-plots-state}
+# Dengue
+dengue_risk_state <- risk_2024_state %>%
+  filter(virus == "Dengue") %>%
+  ggplot(aes(x = week2)) +
+  geom_rect(aes(xmin = week2, xmax = week2 + 1, ymin = low, ymax = high), fill = "darkgrey")+
+  geom_rect(aes(xmin = week2, xmax = week2 + 1, ymin = 0, ymax = incidence_current, fill = riskassessment)) +
+  geom_line(aes(y = avg_incidence, color = "Average Incidence", linetype = "Average Incidence"), size = 1) +
+  theme_bw() +
+  scale_color_manual(name = "Legend", values = c("Average Incidence" = "blue")) +
+  scale_linetype_manual(name = "Legend",  values = c("Average Incidence" = "dashed")) +
+  scale_fill_manual(name = "Risk Level & Baseline", values = c("0" = "#07E000", "1" = "#D9E000", "2" = "#E07000", "3" = "#E10000"), labels = c("0" = "Level 0 - Normal", "1" = "Level 1 - Alert", "2" = "Level 2 - High", "3" = "Level 3 - Epidemic")) +
+  theme(legend.position = "bottom") +
+  scale_x_continuous(breaks = every_10_state) +
+  labs(title = "Risk Levels of Dengue Outbreak in 2024 (States)", y = "Incidence Coefficient (per 100,000 inhabitants)", x = "Epidemiological Week")+
+  facet_wrap(~estado, scales = "free_y", ncol = 4)
+print(dengue_risk_state)
+ggsave(here("Graphs/Risk Levels of Dengue Outbreak in 2024 (States).png"), dengue_risk_state, height = 15, width = 15, dpi = 600, create.dir = T)
+
+# Zika
+zika_risk_state <- risk_2024_state %>%
+  filter(virus == "Zika") %>%
+  ggplot(aes(x = week2)) +
+  geom_rect(aes(xmin = week2, xmax = week2 + 1, ymin = low, ymax = high), fill = "darkgrey")+
+  geom_rect(aes(xmin = week2, xmax = week2 + 1, ymin = 0, ymax = incidence_current, fill = riskassessment)) +
+  geom_line(aes(y = avg_incidence, color = "Average Incidence", linetype = "Average Incidence"), size = 1) +
+  theme_bw() +
+  scale_color_manual(name = "Legend", values = c("Average Incidence" = "blue")) +
+  scale_linetype_manual(name = "Legend",  values = c("Average Incidence" = "dashed")) +
+  scale_fill_manual(name = "Risk Level & Baseline", values = c("0" = "#07E000", "1" = "#D9E000", "2" = "#E07000", "3" = "#E10000"), labels = c("0" = "Level 0 - Normal", "1" = "Level 1 - Alert", "2" = "Level 2 - High", "3" = "Level 3 - Epidemic")) +
+  theme(legend.position = "bottom") +
+  scale_x_continuous(breaks = every_10_state) +
+  labs(title = "Risk Levels of Zika Outbreak in 2024 (States)", y = "Incidence Coefficient (per 100,000 inhabitants)", x = "Epidemiological Week")+
+  facet_wrap(~estado, scales = "free_y", ncol = 4)
+print(zika_risk_state)
+ggsave(here("Graphs/Risk Levels of Zika Outbreak in 2024 (States).png"), zika_risk_state, height = 15, width = 15, dpi = 600, create.dir = T)
+
+# Chikungunya
+chik_risk_state <- risk_2024_state %>%
+  filter(virus == "Chikungunya") %>%
+  ggplot(aes(x = week2)) +
+  geom_rect(aes(xmin = week2, xmax = week2 + 1, ymin = low, ymax = high), fill = "darkgrey")+
+  geom_rect(aes(xmin = week2, xmax = week2 + 1, ymin = 0, ymax = incidence_current, fill = riskassessment)) +
+  geom_line(aes(y = avg_incidence, color = "Average Incidence", linetype = "Average Incidence"), size = 1) +
+  theme_bw() +
+  scale_color_manual(name = "Legend", values = c("Average Incidence" = "blue")) +
+  scale_linetype_manual(name = "Legend",  values = c("Average Incidence" = "dashed")) +
+  scale_fill_manual(name = "Risk Level & Baseline", values = c("0" = "#07E000", "1" = "#D9E000", "2" = "#E07000", "3" = "#E10000"), labels = c("0" = "Level 0 - Normal", "1" = "Level 1 - Alert", "2" = "Level 2 - High", "3" = "Level 3 - Epidemic")) +
+  theme(legend.position = "bottom") +
+  scale_x_continuous(breaks = every_10_state) +
+  labs(title = "Risk Levels of Chikungunya Outbreak in 2024 (States)", y = "Incidence Coefficient (per 100,000 inhabitants)", x = "Epidemiological Week")+
+  facet_wrap(~estado, scales = "free_y", ncol = 4)
+print(chik_risk_state)
+ggsave(here("Graphs/Risk Levels of Chikungunya Outbreak in 2024 (States).png"), chik_risk_state, height = 15, width = 15, dpi = 600, create.dir = T)
+```
+
+---
+
+# 13. Risk Levels in 2024 - Municipality Level
+
+```{r risk-data-muni}
+#Preparing the data
+risk_2024_muni <- risk_2024_muni %>%
+  filter(!is.na(municipality)) %>%
+  mutate(week2 = as.numeric(week2),
+         riskassessment = factor(riskassessment, levels = c("0", "1", "2", "3")))
+
+every_10_muni <- seq(min(risk_2024_muni$week2, na.rm = TRUE), max(risk_2024_muni$week2, na.rm = TRUE), by = 10)
+```
+
+## Dengue
+
+```{r risk-dengue-plot-muni}
+dengue_risk_muni <- risk_2024_muni %>%
+  filter(virus == "Dengue") %>%
+  ggplot(aes(x = week2)) +
+  geom_rect(aes(xmin = week2, xmax = week2 + 1, ymin = low, ymax = high), fill = "darkgrey")+
+  geom_rect(aes(xmin = week2, xmax = week2 + 1, ymin = 0, ymax = incidence_current, fill = riskassessment)) +
+  geom_line(aes(y = avg_incidence, color = "Average Incidence", linetype = "Average Incidence"), size = 1) +
+  theme_bw() +
+  scale_color_manual(name = "Legend", values = c("Average Incidence" = "blue")) +
+  scale_linetype_manual(name = "Legend",  values = c("Average Incidence" = "dashed")) +
+  scale_fill_manual(name = "Risk Level & Baseline", values = c("0" = "#07E000", "1" = "#D9E000", "2" = "#E07000", "3" = "#E10000"), labels = c("0" = "Level 0 - Normal", "1" = "Level 1 - Alert", "2" = "Level 2 - High", "3" = "Level 3 - Epidemic")) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1), legend.position = "bottom") +
+  scale_x_continuous(breaks = every_10_muni) +
+  labs(title = "Risk Levels of Dengue Outbreak in 2024 (Municipalities)", subtitle = "Weekly incidence compared to the historical endemic channel (excluding epidemic years)", y = "Incidence Coefficient (per 100,000 inhabitants)", x = "Epidemiological Week", caption = "Data from: DATASUS. Analysis and Visualization by the authors")+
+  facet_wrap(~municipality, scales = "free_y", ncol = 4)
+print(dengue_risk_muni)
+ggsave(here("Graphs/Risk Levels of Dengue Outbreak in 2024 (Municipalities).png"), dengue_risk_muni, height = 15, width = 15, dpi = 600, create.dir = T)
+```
+
+## Zika
+
+```{r risk-zika-plot-muni}
+zika_risk_muni <- risk_2024_muni %>%
+  filter(virus == "Zika") %>%
+  ggplot(aes(x = week2)) +
+  geom_rect(aes(xmin = week2, xmax = week2 + 1, ymin = low, ymax = high), fill = "darkgrey")+
+  geom_rect(aes(xmin = week2, xmax = week2 + 1, ymin = 0, ymax = incidence_current, fill = riskassessment)) +
+  geom_line(aes(y = avg_incidence, color = "Average Incidence", linetype = "Average Incidence"), size = 1) +
+  theme_bw() +
+  scale_color_manual(name = "Legend", values = c("Average Incidence" = "blue")) +
+  scale_linetype_manual(name = "Legend",  values = c("Average Incidence" = "dashed")) +
+  scale_fill_manual(name = "Risk Level & Baseline", values = c("0" = "#07E000", "1" = "#D9E000", "2" = "#E07000", "3" = "#E10000"), labels = c("0" = "Level 0 - Normal", "1" = "Level 1 - Alert", "2" = "Level 2 - High", "3" = "Level 3 - Epidemic")) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1), legend.position = "bottom") +
+  scale_x_continuous(breaks = every_10_muni) +
+  labs(title = "Risk Levels of Zika Outbreak in 2024 (Municipalities)", subtitle = "Weekly incidence compared to the historical endemic channel (excluding epidemic years)", y = "Incidence Coefficient (per 100,000 inhabitants)", x = "Epidemiological Week", caption = "Data from: DATASUS. Analysis and Visualization by the authors")+
+  facet_wrap(~municipality, scales = "free_y", ncol = 4)
+print(zika_risk_muni)
+ggsave(here("Graphs/Risk Levels of Zika Outbreak in 2024 (Municipalities).png"), zika_risk_muni, height = 15, width = 15, dpi = 600, create.dir = T)
+```
+
+## Chikungunya
+
+```{r chik-risk-plot-muni}
+chik_risk_muni <- risk_2024_muni %>%
+  filter(virus == "Chikungunya") %>%
+  ggplot(aes(x = week2)) +
+  geom_rect(aes(xmin = week2, xmax = week2 + 1, ymin = low, ymax = high), fill = "darkgrey")+
+  geom_rect(aes(xmin = week2, xmax = week2 + 1, ymin = 0, ymax = incidence_current, fill = riskassessment)) +
+  geom_line(aes(y = avg_incidence, color = "Average Incidence", linetype = "Average Incidence"), size = 1) +
+  theme_bw() +
+  scale_color_manual(name = "Legend", values = c("Average Incidence" = "blue")) +
+  scale_linetype_manual(name = "Legend",  values = c("Average Incidence" = "dashed")) +
+  scale_fill_manual(name = "Risk Level & Baseline", values = c("0" = "#07E000", "1" = "#D9E000", "2" = "#E07000", "3" = "#E10000"), labels = c("0" = "Level 0 - Normal", "1" = "Level 1 - Alert", "2" = "Level 2 - High", "3" = "Level 3 - Epidemic")) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1), legend.position = "bottom") +
+  scale_x_continuous(breaks = every_10_muni) +
+  labs(title = "Risk Levels of Chikungunya Outbreak in 2024 (Municipalities)", subtitle = "Weekly incidence compared to the historical endemic channel (excluding epidemic years)", y = "Incidence Coefficient (per 100,000 inhabitants)", x = "Epidemiological Week", caption = "Data from: DATASUS. Analysis and Visualization by the authors")+
+  facet_wrap(~municipality, scales = "free_y", ncol = 4)
+print(chik_risk_muni)
+ggsave(here("Graphs/Risk Levels of Chikungunya Outbreak in 2024 (Municipalities).png"), chik_risk_muni, height = 15, width = 15, dpi = 600, create.dir = T)
+```
