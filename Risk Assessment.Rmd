@@ -1120,3 +1120,90 @@ chik_risk_muni <- risk_2024_muni %>%
 print(chik_risk_muni)
 ggsave(here("Graphs/Risk Levels of Chikungunya Outbreak in 2024 (Municipalities).png"), chik_risk_muni, height = 15, width = 15, dpi = 600, create.dir = T)
 ```
+
+---
+
+# 14. Emergency Declarations + Risk Levels in 2024 - Municipality Level
+
+```{r emergency-muni}
+# Manually create state emergency data from the provided table
+emergency_state <- tibble::tribble(
+    ~estado, ~date_issued,
+    "AC", "05/01/2024",
+    "AP", "01/02/2024",
+    "GO", "02/02/2024",
+    "ES", "21/02/2024",
+    "RJ", "21/02/2024",
+    "SC", "22/02/2024",
+    "MG", "26/02/2024",
+    "AP", "28/02/2024",
+    "SP", "05/03/2024",
+    "RS", "12/03/2024",
+    "PR", "14/03/2024"
+    ) %>%
+  mutate(
+    date_issued = dmy(date_issued),
+    year = year(date_issued),
+    week2 = epiweek(date_issued)
+  ) %>%
+  filter(year == 2024, !is.na(week2))
+
+# Manually create municipality emergency data from the provided table
+emergency_muni <- tibble::tribble(
+    ~municipality, ~date_issued,
+    "530010 BRASILIA", "25/01/2024",
+    "330455 RIO DE JANEIRO", "02/02/2024",
+    "510340 CUIABA", "08/02/2024", # Calamity
+    "310620 BELO HORIZONTE", "16/02/2024",
+    "420540 FLORIANOPOLIS", "22/02/2024",
+    "240810 NATAL", "01/03/2024",
+    "520870 GOIANIA", "13/03/2024",
+    "355030 SAO PAULO", "18/03/2024",
+    "431490 PORTO ALEGRE", "22/04/2024",
+    "420540 FLORIANOPOLIS", "17/12/2024",
+  ) %>%
+  mutate(
+    date_issued = dmy(date_issued),
+    year = year(date_issued),
+    week2 = epiweek(date_issued)
+  ) %>%
+  filter(year == 2024, !is.na(week2))
+
+# First, create a map from municipality to state to draw state lines on muni plots
+muni_to_state_map <- arboviruses_muni %>%
+  distinct(municipality, estado)
+
+# Join the state emergency data with this map
+emergency_state_for_muni_plot <- emergency_state %>%
+  left_join(muni_to_state_map, by = "estado") %>%
+  filter(!is.na(municipality))
+
+# Plot for Dengue Risk Levels with Municipality and State Emergency Declarations
+dengue_risk_emergency_muni <- risk_2024_muni %>%
+  filter(virus == "Dengue") %>%
+  ggplot(aes(x = week2)) +
+  geom_rect(aes(xmin = week2, xmax = week2 + 1, ymin = low, ymax = high), fill = "darkgrey") +
+  geom_rect(aes(xmin = week2, xmax = week2 + 1, ymin = 0, ymax = incidence_current, fill = riskassessment)) +
+  geom_line(aes(y = avg_incidence, color = "Average Incidence", linetype = "Average Incidence"), size = 1) +
+  # Add vertical line for STATE emergency declarations (SOLID)
+  geom_vline(data = emergency_state_for_muni_plot, aes(xintercept = week2), color = "black", linetype = "solid", size = 1) +
+  # Add vertical line for MUNICIPALITY emergency declarations (DASHED)
+  geom_vline(data = emergency_muni, aes(xintercept = week2), color = "black", linetype = "dashed", size = 1) +
+  theme_bw() +
+  scale_color_manual(name = "Legend", values = c("Average Incidence" = "blue")) +
+  scale_linetype_manual(name = "Legend", values = c("Average Incidence" = "dashed")) +
+  scale_fill_manual(name = "Risk Level & Baseline", values = c("0" = "#07E000", "1" = "#D9E000", "2" = "#E07000", "3" = "#E10000"), labels = c("0" = "Level 0 - Normal", "1" = "Level 1 - Alert", "2" = "Level 2 - High", "3" = "Level 3 - Epidemic")) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1), legend.position = "bottom") +
+  scale_x_continuous(breaks = every_10_muni) +
+  labs(
+    title = "Dengue Risk and Emergency Declarations in 2024 (Municipalities)",
+    subtitle = "Solid Line = State Declaration | Dashed Line = Municipal Declaration",
+    y = "Incidence (per 100,000 inhabitants)",
+    x = "Epidemiological Week"
+  ) +
+  facet_wrap(~municipality, scales = "free_y", ncol = 4)
+
+print(dengue_risk_emergency_muni)
+ggsave(here("Graphs/Risk Levels of Dengue with Emergency (Municipalities).png"), dengue_risk_emergency_muni, height = 15, width = 15, dpi = 600, create.dir = T)
+```
+
