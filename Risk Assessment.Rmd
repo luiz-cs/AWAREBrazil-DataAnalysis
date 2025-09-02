@@ -100,7 +100,7 @@ codibge <- list(
 ```{r group-data}
 ## All Municipalities (Original)
 arboviruses <- arboviruses_full %>%
-  group_by(ibge, class_regiao, estado, municipality, year, week, virus) %>%
+  group_by(ibge, class_regiao, uf, municipality, year, week, virus) %>%
   summarise(
     cases = sum(likely_cases, na.rm = TRUE),
     population = sum(population, na.rm = TRUE),
@@ -127,7 +127,7 @@ arboviruses_muni <- arboviruses %>%
 
 ## Grouping by State 
 arboviruses_state <- arboviruses_full %>%
-  group_by(estado, year, week, virus) %>%
+  group_by(uf, year, week, virus) %>%
   summarise(
     cases = sum(likely_cases, na.rm = TRUE),
     population = sum(population, na.rm = TRUE),
@@ -139,9 +139,9 @@ arboviruses_state <- arboviruses_full %>%
     wy = paste0(year, "w", as.integer(week))
   ) %>%
   full_join(epiweek40, by = "wy") %>%
-  group_by(estado, virus) %>%
+  group_by(uf, virus) %>%
   arrange(year_week40, epidemiologic_week_startsweek40) %>%
-  filter(!is.na(estado)) %>%
+  filter(!is.na(uf)) %>%
   mutate(
     yw = as.character(paste0(year_week40,"-", epidemiologic_week_startsweek40)),
     epi_label = paste0(year_week40, "w", epidemiologic_week_startsweek40)
@@ -237,7 +237,7 @@ incidence_dengue_state <- arboviruses_state %>%
   filter(virus == "Dengue") %>%
   ggplot(aes(x = yw, y = incidence, group = 1)) +
   geom_line(color = "steelblue") +
-  facet_wrap(~estado, scales = "free_y") +
+  facet_wrap(~uf, scales = "free_y") +
   labs(
     title = "Incidence of Dengue per State",
     x = "Epidemiological Week (Year-Week)",
@@ -254,7 +254,7 @@ incidence_zika_state <- arboviruses_state %>%
   filter(virus == "Zika") %>%
   ggplot(aes(x = yw, y = incidence, group = 1)) +
   geom_line(color = "steelblue") +
-  facet_wrap(~estado, scales = "free_y") +
+  facet_wrap(~uf, scales = "free_y") +
   labs(
     title = "Incidence of Zika per State",
     x = "Epidemiological Week (Year-Week)",
@@ -271,7 +271,7 @@ incidence_chik_state <- arboviruses_state %>%
   filter(virus == "Chikungunya") %>%
   ggplot(aes(x = yw, y = incidence, group = 1)) +
   geom_line(color = "steelblue") +
-  facet_wrap(~estado, scales = "free_y") +
+  facet_wrap(~uf, scales = "free_y") +
   labs(
     title = "Incidence of Chikungunya per State",
     x = "Epidemiological Week (Year-Week)",
@@ -346,8 +346,8 @@ ggsave(here("Graphs/Incidence of Chikungunya per Selected Municipalities.png"), 
 get_location_name <- function(df) {
   if ("municipality" %in% names(df)) {
     return(paste("municipality:", unique(df$municipality)))
-  } else if ("estado" %in% names(df)) {
-    return(paste("state:", unique(df$estado)))
+  } else if ("uf" %in% names(df)) {
+    return(paste("state:", unique(df$uf)))
   } else if ("country" %in% names(df)) {
     return(paste("country:", unique(df$country)))
   } else {
@@ -596,7 +596,7 @@ ggsave(here("Graphs/Chikungunya Risk Assessment for Brazil in 2024.png"), chik_r
 
 ```{r risks-run-state}
 nested_data_state <- arboviruses_state %>%
-  group_by(estado, virus) %>%
+  group_by(uf, virus) %>%
   nest()
 
 results_state <- nested_data_state %>%
@@ -604,7 +604,7 @@ results_state <- nested_data_state %>%
 
 risk_2024_state <- results_state %>%
   mutate(risk_data = map(risk_analysis_results, ~ .x$risk_final)) %>%
-  select(estado, virus, risk_data) %>%
+  select(uf, virus, risk_data) %>%
   unnest(cols = c(risk_data))
 ```
 
@@ -613,17 +613,17 @@ risk_2024_state <- results_state %>%
 ```{r table-epiyears-state}
 epidemic_years_data_state <- results_state %>%
   mutate(epidemic_years = map(risk_analysis_results, extract_epidemic_years)) %>%
-  select(estado, virus, epidemic_years) %>%
+  select(uf, virus, epidemic_years) %>%
   unnest(cols = c(epidemic_years))
 
 epidemic_summary_table_state <- epidemic_years_data_state %>%
-  group_by(estado, virus) %>%
+  group_by(uf, virus) %>%
   summarise(
     epidemic_years_list = paste(sort(unique(epidemic_year)), collapse = ", "),
     .groups = "drop"
   ) %>%
   rename(
-    `State` = estado,
+    `State` = uf,
     `Virus`= virus,
     `Epidemic Years` = epidemic_years_list
   )
@@ -639,7 +639,7 @@ dengue_risk_2024_state <- risk_2024_state %>%
   filter(virus == "Dengue") %>%
   ggplot(aes(x = week2, y = riskassessment, group = 1)) +
   geom_step(color = "firebrick") +
-  facet_wrap(~ estado) +
+  facet_wrap(~ uf) +
   labs(title = "Dengue Risk Assessment per State in 2024", x = "Epidemiological Week", y = "Calculated Risk Level") +
   scale_y_continuous(breaks = 0:3, limits = c(0, 3)) +
   theme_bw()
@@ -651,7 +651,7 @@ zika_risk_2024_state <- risk_2024_state %>%
   filter(virus == "Zika") %>%
   ggplot(aes(x = week2, y = riskassessment, group = 1)) +
   geom_step(color = "firebrick") +
-  facet_wrap(~ estado) +
+  facet_wrap(~ uf) +
   labs(title = "Zika Risk Assessment per State in 2024", x = "Epidemiological Week", y = "Calculated Risk Level") +
   scale_y_continuous(breaks = 0:3, limits = c(0, 3)) +
   theme_bw()
@@ -663,7 +663,7 @@ chik_risk_2024_state <- risk_2024_state %>%
   filter(virus == "Chikungunya") %>%
   ggplot(aes(x = week2, y = riskassessment, group = 1)) +
   geom_step(color = "firebrick") +
-  facet_wrap(~ estado) +
+  facet_wrap(~ uf) +
   labs(title = "Chikungunya Risk Assessment per State in 2024", x = "Epidemiological Week", y = "Calculated Risk Level") +
   scale_y_continuous(breaks = 0:3, limits = c(0, 3)) +
   theme_bw()
@@ -831,7 +831,7 @@ dengue_control_d_state <- risk_2024_state %>%
   geom_ribbon(aes(ymin = low, ymax = high), fill = "darkgrey", alpha = 0.8) +
   geom_line(aes(y = avg_incidence, linetype = "Historical Average", group = 1), color = "black") +
   geom_line(aes(y = incidence_current, linetype = "2024 Incidence", group = 1), color = "red") +
-  facet_wrap(~ estado, scales = "free_y") +
+  facet_wrap(~ uf, scales = "free_y") +
   scale_linetype_manual(name = "Legend", values = c("Historical Average" = "dashed", "2024 Incidence" = "solid")) +
   labs(title = "Control Diagrams for Dengue Incidence per State (2024)", y = "Incidence Rate (per 100,000)", x = "Epidemiological Week") +
   theme_bw() + theme(legend.position = "top")
@@ -845,7 +845,7 @@ zika_control_d_state <- risk_2024_state %>%
   geom_ribbon(aes(ymin = low, ymax = high), fill = "darkgrey", alpha = 0.8) +
   geom_line(aes(y = avg_incidence, linetype = "Historical Average", group = 1), color = "black") +
   geom_line(aes(y = incidence_current, linetype = "2024 Incidence", group = 1), color = "red") +
-  facet_wrap(~ estado, scales = "free_y") +
+  facet_wrap(~ uf, scales = "free_y") +
   scale_linetype_manual(name = "Legend", values = c("Historical Average" = "dashed", "2024 Incidence" = "solid")) +
   labs(title = "Control Diagrams for Zika Incidence per State (2024)", y = "Incidence Rate (per 100,000)", x = "Epidemiological Week") +
   theme_bw() + theme(legend.position = "top")
@@ -859,7 +859,7 @@ chik_control_d_state <- risk_2024_state %>%
   geom_ribbon(aes(ymin = low, ymax = high), fill = "darkgrey", alpha = 0.8) +
   geom_line(aes(y = avg_incidence, linetype = "Historical Average", group = 1), color = "black") +
   geom_line(aes(y = incidence_current, linetype = "2024 Incidence", group = 1), color = "red") +
-  facet_wrap(~ estado, scales = "free_y") +
+  facet_wrap(~ uf, scales = "free_y") +
   scale_linetype_manual(name = "Legend", values = c("Historical Average" = "dashed", "2024 Incidence" = "solid")) +
   labs(title = "Control Diagrams for Chikungunya Incidence per State (2024)", y = "Incidence Rate (per 100,000)", x = "Epidemiological Week") +
   theme_bw() + theme(legend.position = "top")
@@ -987,7 +987,7 @@ ggsave(here("Graphs/Risk Levels of Chikungunya Outbreak in 2024 (Brazil.png"), c
 
 ```{r risk-data-state}
 risk_2024_state <- risk_2024_state %>%
-  filter(!is.na(estado)) %>%
+  filter(!is.na(uf)) %>%
   mutate(week2 = as.numeric(week2),
          riskassessment = factor(riskassessment, levels = c("0", "1", "2", "3")))
 
@@ -1009,7 +1009,7 @@ dengue_risk_state <- risk_2024_state %>%
   theme(legend.position = "bottom") +
   scale_x_continuous(breaks = every_10_state) +
   labs(title = "Risk Levels of Dengue Outbreak in 2024 (States)", y = "Incidence Coefficient (per 100,000 inhabitants)", x = "Epidemiological Week")+
-  facet_wrap(~estado, scales = "free_y", ncol = 4)
+  facet_wrap(~uf, scales = "free_y", ncol = 4)
 print(dengue_risk_state)
 ggsave(here("Graphs/Risk Levels of Dengue Outbreak in 2024 (States).png"), dengue_risk_state, height = 15, width = 15, dpi = 600, create.dir = T)
 
@@ -1027,7 +1027,7 @@ zika_risk_state <- risk_2024_state %>%
   theme(legend.position = "bottom") +
   scale_x_continuous(breaks = every_10_state) +
   labs(title = "Risk Levels of Zika Outbreak in 2024 (States)", y = "Incidence Coefficient (per 100,000 inhabitants)", x = "Epidemiological Week")+
-  facet_wrap(~estado, scales = "free_y", ncol = 4)
+  facet_wrap(~uf, scales = "free_y", ncol = 4)
 print(zika_risk_state)
 ggsave(here("Graphs/Risk Levels of Zika Outbreak in 2024 (States).png"), zika_risk_state, height = 15, width = 15, dpi = 600, create.dir = T)
 
@@ -1045,7 +1045,7 @@ chik_risk_state <- risk_2024_state %>%
   theme(legend.position = "bottom") +
   scale_x_continuous(breaks = every_10_state) +
   labs(title = "Risk Levels of Chikungunya Outbreak in 2024 (States)", y = "Incidence Coefficient (per 100,000 inhabitants)", x = "Epidemiological Week")+
-  facet_wrap(~estado, scales = "free_y", ncol = 4)
+  facet_wrap(~uf, scales = "free_y", ncol = 4)
 print(chik_risk_state)
 ggsave(here("Graphs/Risk Levels of Chikungunya Outbreak in 2024 (States).png"), chik_risk_state, height = 15, width = 15, dpi = 600, create.dir = T)
 ```
@@ -1128,13 +1128,13 @@ ggsave(here("Graphs/Risk Levels of Chikungunya Outbreak in 2024 (Municipalities)
 ```{r emergency-muni}
 # Manually create state emergency data from the provided table
 emergency_state <- tibble::tribble(
-    ~estado, ~date_issued,
+    ~uf, ~date_issued,
     "AC", "05/01/2024",
     "AP", "01/02/2024",
     "GO", "02/02/2024",
     "ES", "21/02/2024",
     "RJ", "21/02/2024",
-    "SC", "22/02/2024",
+    "SC", "22/02/2024", # Same day as Florianópolis
     "MG", "26/02/2024",
     "AP", "28/02/2024",
     "SP", "05/03/2024",
@@ -1155,7 +1155,7 @@ emergency_muni <- tibble::tribble(
     "330455 RIO DE JANEIRO", "02/02/2024",
     "510340 CUIABA", "08/02/2024", # Calamity
     "310620 BELO HORIZONTE", "16/02/2024",
-    "420540 FLORIANOPOLIS", "22/02/2024",
+    "420540 FLORIANOPOLIS", "22/02/2024", # Same day as SC
     "240810 NATAL", "01/03/2024",
     "520870 GOIANIA", "13/03/2024",
     "355030 SAO PAULO", "18/03/2024",
@@ -1171,11 +1171,11 @@ emergency_muni <- tibble::tribble(
 
 # First, create a map from municipality to state to draw state lines on muni plots
 muni_to_state_map <- arboviruses_muni %>%
-  distinct(municipality, estado)
+  distinct(municipality, uf)
 
 # Join the state emergency data with this map
 emergency_state_for_muni_plot <- emergency_state %>%
-  left_join(muni_to_state_map, by = "estado") %>%
+  left_join(muni_to_state_map, by = "uf") %>%
   filter(!is.na(municipality))
 
 # Plot for Dengue Risk Levels with Municipality and State Emergency Declarations
