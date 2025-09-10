@@ -541,12 +541,12 @@ emergency_state <- tibble::tribble(
   ) %>%
   left_join(epiweek40, by = "wy") %>% # Join with epiweek40
   rename(week2 = epidemiologic_week_startsweek40) %>% 
-  mutate(week2 = as.numeric(as.character(week2))) %>% 
-  filter(year == 2024)
+  mutate(week2 = as.numeric(as.character(week2))) 
 
 # Municipal Emergency Declarations
 emergency_muni <- tibble::tribble(
     ~municipality, ~date_issued,
+    "420540 FLORIANOPOLIS", "29/11/2023", 
     "330455 RIO DE JANEIRO", "02/02/2024",
     "310620 BELO HORIZONTE", "16/02/2024",
     "420540 FLORIANOPOLIS", "22/02/2024", # Same day as SC
@@ -563,8 +563,7 @@ emergency_muni <- tibble::tribble(
   ) %>%
   left_join(epiweek40, by = "wy") %>% # Join with epiweek40
   rename(week2 = epidemiologic_week_startsweek40) %>% 
-  mutate(week2 = as.numeric(as.character(week2))) %>% 
-  filter(year == 2024)
+  mutate(week2 = as.numeric(as.character(week2))) 
 
 # Aggregate labels for states declaring emergency in the same week
 emergency_state_labels <- emergency_state %>%
