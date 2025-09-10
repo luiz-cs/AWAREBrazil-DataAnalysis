@@ -506,11 +506,17 @@ risk_2024_muni <- risk_2024_muni %>%
 # Creation of the Centro de Operações de Emergências de Saúde Pública para Dengue e outras Arboviroses, no âmbito do Ministério da Saúde
 emergency_country <- tibble::tibble(
   label = "02/02/2024",
-  date_issued = dmy("02/02/2024"),
-  year = year(date_issued),
-  week2 = epiweek(date_issued)
+  date_issued = dmy("02/02/2024")
 ) %>%
-  filter(year == 2024)
+  mutate(
+    year = year(date_issued),
+    week = week(date_issued), # Get standard week number
+    wy = paste0(year, "w", as.integer(week)) # Create a join key (e.g., "2024w5")
+  ) %>%
+  left_join(epiweek40, by = "wy") %>% # Join with epiweek40 to get the epidemiological week
+  rename(week2 = epidemiologic_week_startsweek40) %>% # Rename column for consistency
+  mutate(week2 = as.numeric(as.character(week2))) %>% 
+  filter(year == 2024) 
 
 # State Emergency Declarations
 emergency_state <- tibble::tribble(
@@ -526,13 +532,17 @@ emergency_state <- tibble::tribble(
     "SP", "05/03/2024",
     "RS", "12/03/2024",
     "PR", "14/03/2024"
-    ) %>%
+  ) %>%
   mutate(
     date_issued = dmy(date_issued),
     year = year(date_issued),
-    week2 = epiweek(date_issued)
+    week = week(date_issued), # Get standard week number
+    wy = paste0(year, "w", as.integer(week)) # Create a join key
   ) %>%
-  filter(year == 2024, !is.na(week2))
+  left_join(epiweek40, by = "wy") %>% # Join with epiweek40
+  rename(week2 = epidemiologic_week_startsweek40) %>% 
+  mutate(week2 = as.numeric(as.character(week2))) %>% 
+  filter(year == 2024)
 
 # Municipal Emergency Declarations
 emergency_muni <- tibble::tribble(
@@ -543,13 +553,18 @@ emergency_muni <- tibble::tribble(
     "240810 NATAL", "01/03/2024",
     "520870 GOIANIA", "13/03/2024",
     "355030 SAO PAULO", "18/03/2024",
-    "431490 PORTO ALEGRE", "22/04/2024") %>%
+    "431490 PORTO ALEGRE", "22/04/2024"
+  ) %>%
   mutate(
     date_issued = dmy(date_issued),
     year = year(date_issued),
-    week2 = epiweek(date_issued)
+    week = week(date_issued), # Get standard week number
+    wy = paste0(year, "w", as.integer(week)) # Create a join key
   ) %>%
-  filter(year == 2024, !is.na(week2))
+  left_join(epiweek40, by = "wy") %>% # Join with epiweek40
+  rename(week2 = epidemiologic_week_startsweek40) %>% 
+  mutate(week2 = as.numeric(as.character(week2))) %>% 
+  filter(year == 2024)
 
 # Aggregate labels for states declaring emergency in the same week
 emergency_state_labels <- emergency_state %>%
@@ -560,9 +575,13 @@ emergency_state_labels <- emergency_state %>%
 uf_map <- tibble::tribble(
   ~uf, ~uf_code, "AC", "12", "AP", "16", "MG", "31", "ES", "32", "RJ", "33",
   "SP", "35", "PR", "41", "SC", "42", "RS", "43", "GO", "52", "RN", "24",
-  "MT", "51", "DF", "53")
+  "MT", "51", "DF", "53"
+)
+
 muni_to_state_map <- risk_2024_muni %>%
-  distinct(municipality) %>% mutate(uf_code = substr(municipality, 1, 2))
+  distinct(municipality) %>%
+  mutate(uf_code = substr(municipality, 1, 2))
+
 emergency_state_for_muni_plot <- emergency_state %>%
   left_join(uf_map, by = "uf") %>%
   right_join(muni_to_state_map, by = "uf_code") %>%
