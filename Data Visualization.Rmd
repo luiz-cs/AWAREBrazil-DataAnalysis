@@ -1,0 +1,433 @@
+---
+title: "Data Visualization: Arboviruses in Brazil (Country-wide, States and State Capitals)"
+date: "`r format(Sys.Date(), '%Y-%m-%d')`"
+lang: pt-BR
+output:
+  pdf_document:
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+if (.Platform$OS.type == "windows") {
+  Sys.setlocale("LC_CTYPE", "Portuguese_Brazil.1252")
+} else {
+  Sys.setlocale("LC_CTYPE", "pt_BR.UTF-8")
+}
+
+library(tidyverse)
+library(lubridate)
+library(zoo)
+library(ggplot2)
+library(ggsci)
+library(here)
+library(haven)
+library(readr)
+library(stringr)
+library(officer)
+library(flextable)
+```
+
+---
+
+# Content:
+
+1.  Gathering Data
+2.  Preparing Data 
+3.  Descriptive Incidence Graphs
+  3.1. Country-wide Incidence
+    3.1.1 Dengue
+    3.1.2 All Three Aboviruses
+  3.2. State-level Incidence
+    3.2.1 Dengue
+    3.2.2 All Three Aboviruses
+  3.3. Selected Municipalities Incidence
+    3.3.1 Dengue
+    3.3.2 All Three Aboviruses
+4.  Descriptive Deaths Graphs
+  4.1. Country-wide Deaths
+    4.1.1 Dengue
+    4.1.2 All Three Aboviruses
+  4.2. State-level Deaths
+    4.2.1 Dengue
+    4.2.2 All Three Aboviruses
+  4.3. Selected Municipalities Deaths
+    4.3.1 Dengue
+    4.3.2 All Three Aboviruses
+
+---
+
+# 1. Gathering Data
+
+```{r gather-data}
+# All arbovirsuses data:
+arboviruses_full <- read_csv(here("Data/cases_all_virus_2014_2024.csv")) %>%
+  mutate(virus = str_to_title(virus)) 
+
+# Epidemiological week starting on the first week of the winter
+epiweek40 <- read_dta(
+  here("Data/epidemiological_week_startsweek40.dta"))
+
+#List of municipalities of interest
+codibge <- list(
+  "Rio Branco"      = "120040",
+  "Maceió"          = "270430",
+  "Macapá"          = "160030",
+  "Manaus"          = "130260",
+  "Salvador"        = "292740",
+  "Fortaleza"       = "230440",
+  "Brasília"        = "530010",
+  "Vitória"         = "320530",
+  "Goiânia"         = "520870",
+  "São Luís"        = "211130",
+  "Cuiabá"          = "510340",
+  "Campo Grande"    = "500270",
+  "Belo Horizonte"  = "310620",
+  "Belém"           = "150140",
+  "João Pessoa"     = "250750",
+  "Curitiba"        = "410690",
+  "Recife"          = "261160",
+  "Teresina"        = "221100",
+  "Rio de Janeiro"  = "330455",
+  "Natal"           = "240810",
+  "Porto Alegre"    = "431490",
+  "Porto Velho"     = "110020",
+  "Boa Vista"       = "140010",
+  "Florianópolis"   = "420540",
+  "São Paulo"       = "355030",
+  "Aracaju"         = "280030",
+  "Palmas"          = "172100")
+```
+
+---
+
+# 2. Preparing Data
+
+## Grouping by Municipality, State, and Country
+
+```{r group-data}
+# 1. Create a single, clean base dataset with all necessary time variables
+arboviruses_base <- arboviruses_full %>%
+  group_by(ibge, class_regiao, uf, municipality, year, week, virus) %>%
+  summarise(
+    cases = sum(likely_cases, na.rm = TRUE),
+    population = first(population),
+    deaths = sum(deaths, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(wy = paste0(year, "w", as.integer(week))) %>%
+  full_join(epiweek40, by = "wy") %>%
+  filter(!is.na(municipality)) %>%
+  mutate(
+    incidence = ifelse(population > 0, cases / (population / 100000), 0),
+    yw = as.character(paste0(year_week40, "-", epidemiologic_week_startsweek40)),
+    epi_label = paste0(year_week40, "w", epidemiologic_week_startsweek40)
+  )
+
+# 2. Create datasets for each geographic level
+arboviruses_muni_ind <- arboviruses_base %>% filter(ibge %in% unlist(codibge))
+arboviruses_state_ind <- arboviruses_base %>%
+  group_by(uf, year, week, virus, wy, year_week40, epidemiologic_week_startsweek40, yw, epi_label) %>%
+  summarise(
+    cases = sum(cases, na.rm = TRUE), population = sum(population, na.rm = TRUE),
+    deaths = sum(deaths, na.rm = TRUE), .groups = "drop") %>%
+  mutate(incidence = ifelse(population > 0, cases / (population / 100000), 0))
+arboviruses_country_ind <- arboviruses_base %>%
+  group_by(year, week, virus, wy, year_week40, epidemiologic_week_startsweek40, yw, epi_label) %>%
+  summarise(
+    cases = sum(cases, na.rm = TRUE), population = sum(population, na.rm = TRUE),
+    deaths = sum(deaths, na.rm = TRUE), .groups = "drop") %>%
+  mutate(
+    incidence = ifelse(population > 0, cases / (population / 100000), 0),
+    country = "Brazil")
+
+# 3. Create summed datasets and bind them back
+time_cols <- c("year", "week", "wy", "year_week40", "epidemiologic_week_startsweek40", "yw", "epi_label")
+sum_muni <- arboviruses_muni_ind %>% group_by(across(all_of(c("ibge", "class_regiao", "uf", "municipality", time_cols)))) %>%
+  summarise(cases = sum(cases), population = first(population), deaths = sum(deaths), .groups = "drop") %>%
+  mutate(incidence = ifelse(population > 0, cases / (population / 100000), 0), virus = "Sum of Arboviruses")
+sum_state <- arboviruses_state_ind %>% group_by(across(all_of(c("uf", time_cols)))) %>%
+  summarise(cases = sum(cases), population = first(population), deaths = sum(deaths), .groups = "drop") %>%
+  mutate(incidence = ifelse(population > 0, cases / (population / 100000), 0), virus = "Sum of Arboviruses")
+sum_country <- arboviruses_country_ind %>% group_by(country, across(all_of(time_cols))) %>%
+  summarise(cases = sum(cases), population = first(population), deaths = sum(deaths), .groups = "drop") %>%
+  mutate(incidence = ifelse(population > 0, cases / (population / 100000), 0), virus = "Sum of Arboviruses")
+
+arboviruses_muni <- bind_rows(arboviruses_muni_ind, sum_muni)
+arboviruses_state <- bind_rows(arboviruses_state_ind, sum_state)
+arboviruses_country <- bind_rows(arboviruses_country_ind, sum_country)
+```
+
+---
+
+# 3. Descriptive Incidence Graphs
+
+## 3.1. Country-wide Incidence
+
+### 3.1.1 Dengue
+```{r incidence-country-dengue, fig.width=15, fig.height=15}
+incidence_dengue_br <- arboviruses_country %>%
+  filter(virus == "Dengue") %>%
+  ggplot(aes(x = yw, y = incidence, group = 1, color = virus)) +
+  geom_line() +
+  scale_color_lancet(name = "Virus") +
+  labs(
+    title = "Incidence of Dengue in Brazil",
+    x = "Epidemiological Week (Year-Week)",
+    y = "Incidence Rate (per 100,000 people)"
+  ) +
+  scale_x_discrete(breaks = sort(unique(arboviruses_country$yw))[seq(1, length(unique(arboviruses_country$yw)), by = 52)]) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, size = 8),
+    legend.position = "none"
+  )
+print(incidence_dengue_br)
+ggsave(here("Graphs/Incidence of Dengue in Brazil.png"), incidence_dengue_br, height = 15, width = 15, dpi = 300, create.dir = TRUE)
+```
+
+### 3.1.4 All Three Arboviruses
+```{r incidence-country-all, fig.width=15, fig.height=15}
+incidence_all_br <- arboviruses_country %>%
+  filter(virus != "Sum of Arboviruses") %>%
+  ggplot(aes(x = yw, y = incidence, group = virus, color = virus)) +
+  geom_line(alpha = 0.8, linewidth = 1) +
+  scale_color_lancet(name = "Virus") +
+  labs(
+    title = "Incidence of Dengue, Chikungunya, and Zika in Brazil",
+    x = "Epidemiological Week (Year-Week)",
+    y = "Incidence Rate (per 100,000 people)"
+  ) +
+  scale_x_discrete(breaks = sort(unique(arboviruses_country$yw))[seq(1, length(unique(arboviruses_country$yw)), by = 52)]) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 8), legend.position = "bottom")
+print(incidence_all_br)
+ggsave(here("Graphs/Incidence of All Arboviruses in Brazil.png"), incidence_all_br, height = 15, width = 15, dpi = 300, create.dir = TRUE)
+```
+
+## 3.2. State-level Incidence
+
+### 3.2.1 Dengue
+```{r incidence-state-dengue, fig.width=15, fig.height=15}
+incidence_dengue_state <- arboviruses_state %>%
+  filter(virus == "Dengue") %>%
+  ggplot(aes(x = yw, y = incidence, group = 1, color = virus)) +
+  geom_line() +
+  facet_wrap(~uf, scales = "free_y") +
+  scale_color_lancet() +
+  labs(
+    title = "Incidence of Dengue per State",
+    x = "Epidemiological Week (Year-Week)",
+    y = "Incidence Rate (per 100,000 people)"
+  ) +
+  scale_x_discrete(breaks = sort(unique(arboviruses_state$yw))[seq(1, length(unique(arboviruses_state$yw)), by = 104)]) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, size = 7),
+    legend.position = "none"
+  )
+print(incidence_dengue_state)
+ggsave(here("Graphs/Incidence of Dengue per State.png"), incidence_dengue_state, height = 15, width = 15, dpi = 300, create.dir = TRUE)
+```
+
+### 3.2.4 All Three Arboviruses
+```{r incidence-state-all, fig.width=15, fig.height=15}
+incidence_all_state <- arboviruses_state %>%
+  filter(virus != "Sum of Arboviruses") %>%
+  ggplot(aes(x = yw, y = incidence, group = virus, color = virus)) +
+  geom_line(alpha = 0.8) +
+  facet_wrap(~uf, scales = "free_y") +
+  scale_color_lancet(name = "Virus") +
+  labs(
+    title = "Incidence of All Arboviruses per State",
+    x = "Epidemiological Week (Year-Week)",
+    y = "Incidence Rate (per 100,000 people)"
+  ) +
+  scale_x_discrete(breaks = sort(unique(arboviruses_state$yw))[seq(1, length(unique(arboviruses_state$yw)), by = 104)]) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 7), legend.position = "bottom")
+print(incidence_all_state)
+ggsave(here("Graphs/Incidence of All Arboviruses per State.png"), incidence_all_state, height = 15, width = 15, dpi = 300, create.dir = TRUE)
+```
+
+## 3.3. Selected Municipalities Incidence
+
+### 3.3.1 Dengue
+```{r incidence-muni-dengue, fig.width=15, fig.height=15}
+incidence_dengue_muni <- arboviruses_muni %>%
+  filter(virus == "Dengue") %>%
+  ggplot(aes(x = yw, y = incidence, group = 1, color = virus)) +
+  geom_line() +
+  facet_wrap(~municipality, scales = "free_y") +
+  scale_color_lancet() +
+  labs(
+    title = "Weekly Dengue Incidence per Selected Municipalities",
+    x = "Epidemiological Week (Year-Week)",
+    y = "Incidence Rate (per 100,000 people)"
+  ) +
+  scale_x_discrete(breaks = sort(unique(arboviruses_muni$yw))[seq(1, length(unique(arboviruses_muni$yw)), by = 104)]) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, size = 7),
+    legend.position = "none"
+  )
+print(incidence_dengue_muni)
+ggsave(here("Graphs/Incidence of Dengue per Selected Municipalities.png"), incidence_dengue_muni, height = 15, width = 15, dpi = 300, create.dir = TRUE)
+```
+
+### 3.3.4 All Three Arboviruses
+```{r incidence-muni-all, fig.width=15, fig.height=15}
+incidence_all_muni <- arboviruses_muni %>%
+  filter(virus != "Sum of Arboviruses") %>%
+  ggplot(aes(x = yw, y = incidence, group = virus, color = virus)) +
+  geom_line(alpha = 0.8) +
+  facet_wrap(~municipality, scales = "free_y") +
+  scale_color_lancet(name = "Virus") +
+  labs(
+    title = "Incidence of All Arboviruses per Selected Municipalities",
+    x = "Epidemiological Week (Year-Week)",
+    y = "Incidence Rate (per 100,000 people)"
+  ) +
+  scale_x_discrete(breaks = sort(unique(arboviruses_muni$yw))[seq(1, length(unique(arboviruses_muni$yw)), by = 104)]) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 7), legend.position = "bottom")
+print(incidence_all_muni)
+ggsave(here("Graphs/Incidence of All Arboviruses per Selected Municipalities.png"), incidence_all_muni, height = 15, width = 15, dpi = 300, create.dir = TRUE)
+```
+
+---
+
+# 4. Descriptive Deaths Graphs
+
+## 4.1. Country-wide Deaths
+
+### 4.1.1 Dengue
+```{r deaths-country-dengue, fig.width=15, fig.height=15}
+deaths_dengue_br <- arboviruses_country %>%
+  filter(virus == "Dengue") %>%
+  ggplot(aes(x = yw, y = deaths, group = 1, color = virus)) +
+  geom_line() +
+  scale_color_lancet() +
+  labs(
+    title = "Deaths from Dengue in Brazil",
+    x = "Epidemiological Week (Year-Week)",
+    y = "Number of Deaths"
+  ) +
+  scale_x_discrete(breaks = sort(unique(arboviruses_country$yw))[seq(1, length(unique(arboviruses_country$yw)), by = 52)]) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, size = 8),
+    legend.position = "none"
+  )
+print(deaths_dengue_br)
+ggsave(here("Graphs/Deaths of Dengue in Brazil.png"), deaths_dengue_br, height = 15, width = 15, dpi = 300, create.dir = TRUE)
+```
+
+### 4.1.4 All Three Arboviruses
+```{r deaths-country-all, fig.width=15, fig.height=15}
+deaths_all_br <- arboviruses_country %>%
+  filter(virus != "Sum of Arboviruses") %>%
+  ggplot(aes(x = yw, y = deaths, group = virus, color = virus)) +
+  geom_line(alpha = 0.8, linewidth = 1) +
+  scale_color_lancet(name = "Virus") +
+  labs(
+    title = "Deaths from Dengue, Chikungunya, and Zika in Brazil",
+    x = "Epidemiological Week (Year-Week)",
+    y = "Number of Deaths"
+  ) +
+  scale_x_discrete(breaks = sort(unique(arboviruses_country$yw))[seq(1, length(unique(arboviruses_country$yw)), by = 52)]) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 8), legend.position = "bottom")
+print(deaths_all_br)
+ggsave(here("Graphs/Deaths of All Arboviruses in Brazil.png"), deaths_all_br, height = 15, width = 15, dpi = 300, create.dir = TRUE)
+```
+
+## 4.2. State-level Deaths
+
+### 4.2.1 Dengue
+```{r deaths-state-dengue, fig.width=15, fig.height=15}
+deaths_dengue_state <- arboviruses_state %>%
+  filter(virus == "Dengue") %>%
+  ggplot(aes(x = yw, y = deaths, group = 1, color = virus)) +
+  geom_line() +
+  facet_wrap(~uf, scales = "free_y") +
+  scale_color_lancet() +
+  labs(
+    title = "Deaths from Dengue per State",
+    x = "Epidemiological Week (Year-Week)",
+    y = "Number of Deaths"
+  ) +
+  scale_x_discrete(breaks = sort(unique(arboviruses_state$yw))[seq(1, length(unique(arboviruses_state$yw)), by = 104)]) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, size = 7),
+    legend.position = "none"
+  )
+print(deaths_dengue_state)
+ggsave(here("Graphs/Deaths of Dengue per State.png"), deaths_dengue_state, height = 15, width = 15, dpi = 300, create.dir = TRUE)
+```
+
+### 4.2.4 All Three Arboviruses
+```{r deaths-state-all, fig.width=15, fig.height=15}
+deaths_all_state <- arboviruses_state %>%
+  filter(virus != "Sum of Arboviruses") %>%
+  ggplot(aes(x = yw, y = deaths, group = virus, color = virus)) +
+  geom_line(alpha = 0.8) +
+  facet_wrap(~uf, scales = "free_y") +
+  scale_color_lancet(name = "Virus") +
+  labs(
+    title = "Deaths from All Arboviruses per State",
+    x = "Epidemiological Week (Year-Week)",
+    y = "Number of Deaths"
+  ) +
+  scale_x_discrete(breaks = sort(unique(arboviruses_state$yw))[seq(1, length(unique(arboviruses_state$yw)), by = 104)]) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 7), legend.position = "bottom")
+print(deaths_all_state)
+ggsave(here("Graphs/Deaths of All Arboviruses per State.png"), deaths_all_state, height = 15, width = 15, dpi = 300, create.dir = TRUE)
+```
+
+## 4.3. Selected Municipalities Deaths
+
+### 4.3.1 Dengue
+```{r deaths-muni-dengue, fig.width=15, fig.height=15}
+deaths_dengue_muni <- arboviruses_muni %>%
+  filter(virus == "Dengue") %>%
+  ggplot(aes(x = yw, y = deaths, group = 1, color = virus)) +
+  geom_line() +
+  facet_wrap(~municipality, scales = "free_y") +
+  scale_color_lancet() +
+  labs(
+    title = "Weekly Deaths from Dengue per Selected Municipalities",
+    x = "Epidemiological Week (Year-Week)",
+    y = "Number of Deaths"
+  ) +
+  scale_x_discrete(breaks = sort(unique(arboviruses_muni$yw))[seq(1, length(unique(arboviruses_muni$yw)), by = 104)]) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, size = 7),
+    legend.position = "none"
+  )
+print(deaths_dengue_muni)
+ggsave(here("Graphs/Deaths of Dengue per Selected Municipalities.png"), deaths_dengue_muni, height = 15, width = 15, dpi = 300, create.dir = TRUE)
+```
+
+### 4.3.4 All Three Arboviruses
+```{r deaths-muni-all, fig.width=15, fig.height=15}
+deaths_all_muni <- arboviruses_muni %>%
+  filter(virus != "Sum of Arboviruses") %>%
+  ggplot(aes(x = yw, y = deaths, group = virus, color = virus)) +
+  geom_line(alpha = 0.8) +
+  facet_wrap(~municipality, scales = "free_y") +
+  scale_color_lancet(name = "Virus") +
+  labs(
+    title = "Deaths from All Arboviruses per Selected Municipalities",
+    x = "Epidemiological Week (Year-Week)",
+    y = "Number of Deaths"
+  ) +
+  scale_x_discrete(breaks = sort(unique(arboviruses_muni$yw))[seq(1, length(unique(arboviruses_muni$yw)), by = 104)]) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 7), legend.position = "bottom")
+print(deaths_all_muni)
+ggsave(here("Graphs/Deaths of All Arboviruses per Selected Municipalities.png"), deaths_all_muni, height = 15, width = 15, dpi = 300, create.dir = TRUE)
+```
