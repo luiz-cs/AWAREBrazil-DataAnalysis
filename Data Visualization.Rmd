@@ -431,3 +431,9 @@ deaths_all_muni <- arboviruses_muni %>%
 print(deaths_all_muni)
 ggsave(here("Graphs/Deaths of All Arboviruses per Selected Municipalities.png"), deaths_all_muni, height = 15, width = 15, dpi = 300, create.dir = TRUE)
 ```
+
+# 5. Joint visualization of dengue incidence and deaths
+
+```{r joint-visu}
+
+```
