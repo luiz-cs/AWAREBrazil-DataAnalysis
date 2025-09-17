@@ -433,8 +433,452 @@ print(deaths_all_muni)
 ggsave(here("Graphs/Deaths of All Arboviruses per Selected Municipalities.png"), deaths_all_muni, height = 15, width = 15, dpi = 300, create.dir = TRUE)
 ```
 
-# 5. Joint visualization of dengue incidence and deaths
+# 5. Visualization of dengue incidence and deaths
 
-```{r joint-visu}
+```{r visualization - incidence and deaths}
+
+library(geobr)
+library(sf)
+library(scales)
+library(ggsci)
+
+
+##install.packages("geobr")
+##install.packages("scales")
+
+# carregando informações de município e estados
+
+mapa_municipios <- read_municipality(code_muni = "all",year = 2024, showProgress = FALSE)
+estados <- read_state(year = 2020, showProgress = FALSE)
+estados_centroides <- st_centroid(estados)
+
+mapa_municipios <- mapa_municipios %>%
+  mutate(code_muni = as.character(code_muni),
+         code_muni = substr(code_muni, 1, 6))
+
+
+dados_municipios <- arboviruses_base %>% 
+  filter(year == 2024) %>%
+  group_by(ibge) %>%
+    summarise(incidence = sum(incidence),
+              cases = sum(cases),
+              deaths = sum(deaths),
+              deaths_per_capta = sum(deaths)/max(population),
+              deaths_per_case = deaths/cases)
+
+dados_municipios <- dados_municipios %>%
+##  mutate(code_muni = formatC(ibge, width = 7, flag = "0"))
+  mutate(code_muni = as.character(ibge))
+
+mapa_municipios_dados <- mapa_municipios %>%
+  mutate(code_muni = as.character(code_muni)) %>%
+  mutate(code_muni = substr(code_muni,1,6))
+
+# Colocando os dados no mapa
+mapa_com_dados <- left_join(mapa_municipios_dados, dados_municipios, by = "code_muni")
+  
+
+### INCIDENCE
+
+## escala de cores para usar nos gráficos 1 e 2
+cores <- colorRampPalette(c("mistyrose", "black"))
+cores2 <- colorRampPalette(c("mistyrose", "orange", "red", "darkred"))
+cores_lancet <- colorRampPalette(pal_lancet("lanonc")(5))
+
+
+g1 <- ggplot(data = mapa_com_dados) +
+  geom_sf(aes(fill = incidence), color = NA) +
+  geom_sf(data = estados, fill = NA, color = "black", size = 0.4) +  # bordas dos estados
+  scale_fill_gradientn(
+    colours = cores(200),
+    na.value = "gray90",
+    name = "Incidência"
+  ) +
+  labs(
+    title = "Dengue Incidence by Municipality 2024",
+    subtitle = "",
+  ) +
+theme_minimal() +
+theme(
+##  axis.text = element_blank(),
+##  panel.grid = element_blank(),
+##  axis.title = element_blank()     
+)
+g1
+
+ggsave(here("G1 - Incidence Brasil- 2024.png"), g1, width = 10, height = 10)
+
+
+### colocando mapa com valores por Estado
+
+dados_estados <- arboviruses_base %>% 
+  filter(year == 2024) %>%
+  mutate(code_state = substr(as.character(ibge), 1, 2)) %>%  # extrai os dois primeiros dígitos do código IBGE
+  group_by(code_state) %>%
+  summarise(
+    incidence = sum(incidence, na.rm = TRUE),
+    cases = sum(cases, na.rm = TRUE),
+    deaths = sum(deaths, na.rm = TRUE),
+    deaths_per_capta = sum(deaths, na.rm = TRUE) / sum(population, na.rm = TRUE),
+    deaths_per_case = sum(deaths, na.rm = TRUE) / sum(cases, na.rm = TRUE)
+  ) %>%
+  mutate(code_state = as.integer(code_state))
+
+mapa_estados_dados <- left_join(estados, dados_estados, by = "code_state")
+
+g1_estado <- ggplot(data = mapa_estados_dados) +
+  geom_sf(aes(fill = incidence), color = "white") +
+  scale_fill_gradientn(
+    colours = cores(200),
+    na.value = "gray90",
+    name = "Cumulative Incidence"
+  ) +
+  labs(
+    title = "Cumulative Incidence by State - 2024",
+    subtitle = ""
+  ) +
+  theme_minimal() +
+  theme(
+##    axis.text = element_blank(),
+##    panel.grid = element_blank(),
+##    axis.title = element_blank()
+  )
+g1_estado
+
+ggsave(here("G1 - Incidence Brasil - state visualization- 2024.png"), g1_estado, width = 10, height = 10)
+
+
+### DEATHS PER CAPTA
+
+g3 <- ggplot(data = filter(mapa_com_dados)) +
+  geom_sf(aes(fill = deaths_per_capta*1000), color = NA) +
+  geom_sf(data = estados, fill = NA, color = "black", size = 0.4) +  # bordas dos estados
+  scale_fill_gradientn(
+    colours = cores(100),
+    na.value = "gray90",
+    name = "Deaths per capta (x1000)"
+  ) +
+  labs(
+    title = "Deaths per capta Dengue per Municipality 2024",
+    subtitle = "",
+  ) +
+theme_minimal() +
+theme(
+  axis.text = element_blank(),
+  panel.grid = element_blank(),
+  axis.title = element_blank()     
+)
+g3
+
+ggsave(here("G3 - Deaths per capta Brasil - 2024.png"), g3, width = 10, height = 10)
+
+
+
+g3_estado <- ggplot(data = mapa_estados_dados) +
+  geom_sf(aes(fill = deaths_per_capta*1000), color = "white") +
+  scale_fill_gradientn(
+    colours = cores2(200),
+    na.value = "gray90",
+    name = "Cumulative deaths per 1.000 pop."
+  ) +
+  labs(
+    title = "Cumulative deaths per 1.000 pop. by State - 2024",
+    subtitle = ""
+  ) +
+  theme_minimal() +
+  theme(
+##    axis.text = element_blank(),
+##    panel.grid = element_blank(),
+##    axis.title = element_blank()
+  )
+g3_estado
+
+ggsave(here("G3 - Deaths per capta - Brasil - state visualization- 2024.png"), g3_estado, width = 10, height = 10)
+
+
+### gradiante do gráfico
+
+### Marcando a base de acordo com o período
+
+##dados_2024 <- arboviruses_base %>% 
+##  filter(year == 2024) %>%
+##  mutate(periodo_ano =case_when(
+##      week >= 1  & week <= 13 ~ 1,
+##      week >= 14 & week <= 26 ~ 2,
+##      week >= 27 & week <= 39 ~ 3,
+##      week >= 40 & week <= 52 ~ 4,
+##      TRUE ~ NA_real_ )    
+##  )
+
+
+dados_2024 <- arboviruses_base %>% 
+  filter(year == 2024) %>%
+  mutate(periodo_ano =case_when(
+      week >= 1  & week <= 6 ~ 1,
+      week >= 7 & week <= 13 ~ 2,
+      week >= 14 & week <= 19 ~ 3,
+      week >= 20 & week <= 26 ~ 4,
+      week >= 27 & week <= 32 ~ 5,
+      week >= 33 & week <= 39 ~ 6,
+      week >= 40 & week <= 45 ~ 7,
+      week >= 46 & week <= 52 ~ 8,
+      TRUE ~ NA_real_ )    
+  )
+
+## agregando por municipio
+
+dados_municipios_periodo <- dados_2024 %>% 
+  filter(year == 2024) %>%
+  group_by(ibge,periodo_ano) %>%
+    summarise(incidence = sum(incidence),
+              cases = sum(cases),
+              deaths = sum(deaths),
+              deaths_per_capta = sum(deaths)/max(population),
+              deaths_per_case = deaths/cases)
+
+## selecionando o período foi maior incidencia de casos
+
+dados_municipios_periodo_max <- dados_municipios_periodo %>%
+  group_by(ibge) %>%  
+  slice_max(order_by = incidence, n = 1, with_ties = FALSE) %>%
+  ungroup()  
+
+dados_municipios_periodo_max <- dados_municipios_periodo_max %>%
+##  mutate(code_muni = formatC(ibge, width = 7, flag = "0"))
+  mutate(code_muni = as.character(ibge))
+
+## colocando os dados no mapa
+
+mapa_com_dados_periodo <- mapa_municipios %>%
+  mutate(code_muni = as.character(code_muni)) %>%
+  mutate(code_muni = substr(code_muni,1,6))
+
+mapa_com_dados_periodo <- left_join(mapa_com_dados_periodo, dados_municipios_periodo_max, by = "code_muni")
+
+cores_base <- c(
+  "1" = "lightcoral",
+  "2" = "red",
+  "3" = "darkred",
+  "4" = "lightblue",
+  "5" = "blue",
+  "6" = "darkblue",
+  "7" = "lightgreen",
+  "8" = "darkgreen"
+)
+
+mapa_com_dados_periodo <- mapa_com_dados_periodo %>%
+  mutate(
+    incidencia_norm = rescale(incidence, to = c(0.3, 1)),  # normaliza para alpha
+    cor_final = mapply(function(p, a) {
+      alpha(cores_base[as.character(p)], a)
+    }, periodo_ano, incidencia_norm)
+  )
+
+##cores_legenda <- c(
+##  "1" = "red",
+##  "2" = "blue",
+##  "3" = "yellow",
+##  "4" = "green"
+##)
+
+cores_legenda <- c(
+  "1" = "lightcoral",
+  "2" = "red",
+  "3" = "darkred",
+  "4" = "lightblue",
+  "5" = "blue",
+  "6" = "darkblue",
+  "7" = "lightgreen",
+  "8" = "darkgreen"
+)
+
+
+##mapa_com_dados_periodo <- mapa_com_dados_periodo %>%
+##  mutate(
+##    cor_legenda = case_when(
+##      periodo_ano == 1 ~ "Período 1 (Sem. 1–13)",
+##      periodo_ano == 2 ~ "Período 2 (Sem. 14–26)",
+##      periodo_ano == 3 ~ "Período 3 (Sem. 27–39)",
+##      periodo_ano == 4 ~ "Período 4 (Sem. 40–52)"
+##    )
+##  )
+
+mapa_com_dados_periodo <- mapa_com_dados_periodo %>%
+  mutate(periodo_ano = factor(periodo_ano, levels = 1:8),
+    cor_legenda = case_when(
+      periodo_ano == 1 ~ "Período 1 (Sem. 1–6)",
+      periodo_ano == 2 ~ "Período 2 (Sem. 6–13)",
+      periodo_ano == 3 ~ "Período 3 (Sem. 14–19)",
+      periodo_ano == 4 ~ "Período 4 (Sem. 20–26)",
+      periodo_ano == 5 ~ "Período 5 (Sem. 27–32)",
+      periodo_ano == 6 ~ "Período 6 (Sem. 33–39)",
+      periodo_ano == 7 ~ "Período 7 (Sem. 40–45)",
+      periodo_ano == 8 ~ "Período 8 (Sem. 46–52)",      
+    )
+  )
+
+
+g4 <- ggplot(data = mapa_com_dados_periodo) +
+  geom_sf(aes(fill = periodo_ano, alpha = incidencia_norm), color = NA) +
+  geom_sf(data = estados, fill = NA, color = "black", size = 0.4) +  
+  scale_fill_manual(
+    name = "Período com maior incidência",
+    values = cores_legenda,
+    labels = c(
+      "1º trimestre (Sem. 1–13)",
+      "2º trimestre (Sem. 14–26)",
+      "3º trimestre (Sem. 27–39)",
+      "4º trimestre (Sem. 40–52)"
+    )
+  ) +
+  scale_alpha(range = c(0.3, 1), guide = "none") +
+  labs(
+    title = "Prevalence by Quarter by Municipality 2024",
+    subtitle = "",
+  ) +
+theme_minimal() +
+theme(
+##  axis.text = element_blank(),
+##  panel.grid = element_blank(),
+##  axis.title = element_blank()     
+)
+g4
+
+ggsave(here("G4 - Prevalence by Quarter - Brasil- 2024.png"), g4, width = 10, height = 10)
+
+
+g5 <- ggplot(data = mapa_com_dados_periodo) +
+  geom_sf(aes(fill = periodo_ano), color = NA) +
+  geom_sf(data = estados, fill = NA, color = "black", size = 0.4) +  
+  scale_fill_manual(
+    name = "Período com maior incidência",
+    values = cores_legenda,
+    labels = c(
+      "Período 1 (Sem. 1–6)",
+      "Período 2 (Sem. 6–13)",
+      "Período 3 (Sem. 14–19)",
+      "Período 4 (Sem. 20–26)",
+      "Período 5 (Sem. 27–32)",
+      "Período 6 (Sem. 33–39)",
+      "Período 7 (Sem. 40–45)",
+      "Período 8 (Sem. 46–52)"),
+      na.value = "white"
+  ) +
+  scale_alpha(range = c(0.3, 1), guide = "none") +
+  labs(
+    title = "Prevalence by Quarter by Municipality 2024",
+    subtitle = "",
+  ) +
+theme_minimal() +
+theme(
+##  axis.text = element_blank(),
+##  panel.grid = element_blank(),
+##  axis.title = element_blank()     
+)
+g5
+
+ggsave(here("G5 - Prevalence by Weeks - Brasil- 2024.png"), g5, width = 10, height = 10)
+
+
+## agregando os valores por estado
+
+
+## Paleta de cores 
+cores_base <- c(
+  "1" = "lightcoral",
+  "2" = "red",
+  "3" = "darkred",
+  "4" = "lightblue",
+  "5" = "blue",
+  "6" = "darkblue",
+  "7" = "lightgreen",
+  "8" = "darkgreen"
+)
+
+cores_legenda <- cores_base
+
+
+# 1. Une dados dos municípios ao mapa e calcula total por estado/período
+municipios_com_periodo <- mapa_municipios %>%
+  left_join(dados_municipios_periodo_max, by = "code_muni")
+
+dados_estado_periodo <- municipios_com_periodo %>%
+  st_drop_geometry() %>%
+  group_by(abbrev_state, periodo_ano) %>%
+  summarise(
+    total_incidence = sum(incidence, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 2. Pega o período com maior incidência por estado
+dados_estado_periodo_max <- dados_estado_periodo %>%
+  group_by(abbrev_state) %>%
+  slice_max(order_by = total_incidence, n = 1, with_ties = FALSE)
+
+# 3. Junta ao shape dos estados e cria colunas para visualização
+dados_estado_periodo_max <- estados %>%
+  left_join(dados_estado_periodo_max, by = "abbrev_state") %>%
+  mutate(
+    periodo_ano = factor(periodo_ano, levels = 1:8),
+    incidencia_norm = rescale(total_incidence, to = c(0.3, 1)),
+    cor_final = mapply(function(p, a) {
+      alpha(cores_base[as.character(p)], a)
+    }, periodo_ano, incidencia_norm)
+  )
+
+
+## colocando os dados no mapa
+
+mapa_estados_periodo <- mapa_municipios %>%
+  mutate(code_muni = as.character(code_muni)) %>%
+  mutate(code_muni = substr(code_muni,1,6))
+
+mapa_estados_periodo <- left_join(mapa_estados_periodo, dados_municipios_periodo_max, by = "code_muni")
+
+
+mapa_estados_periodo <- mapa_estados_periodo %>%
+  mutate(periodo_ano = factor(periodo_ano, levels = 1:8),
+    cor_legenda = case_when(
+      periodo_ano == 1 ~ "Período 1 (Sem. 1–6)",
+      periodo_ano == 2 ~ "Período 2 (Sem. 6–13)",
+      periodo_ano == 3 ~ "Período 3 (Sem. 14–19)",
+      periodo_ano == 4 ~ "Período 4 (Sem. 20–26)",
+      periodo_ano == 5 ~ "Período 5 (Sem. 27–32)",
+      periodo_ano == 6 ~ "Período 6 (Sem. 33–39)",
+      periodo_ano == 7 ~ "Período 7 (Sem. 40–45)",
+      periodo_ano == 8 ~ "Período 8 (Sem. 46–52)",      
+    )
+  )
+
+
+g6 <- ggplot(dados_estado_periodo_max) +
+  geom_sf(aes(fill = as.factor(periodo_ano)), color = "white", size = 0.3) +
+  scale_fill_manual(
+    name = "Período com maior incidência",
+    values = cores_legenda,
+    labels = c(
+      "1º período (Sem. 1–6)",
+      "2º período (Sem. 7–13)",
+      "3º período (Sem. 14–19)",
+      "4º período (Sem. 20–26)",
+      "5º período (Sem. 27–32)",
+      "6º período (Sem. 33–39)",
+      "7º período (Sem. 40–45)",
+      "8º período (Sem. 46–52)"
+    ),
+    drop = FALSE,
+    na.value = "grey90"
+  ) +
+  scale_alpha(range = c(0.3, 1), guide = "none") +
+  labs(
+    title = "Período com maior incidência de Dengue por Estado – 2024",
+    subtitle = "Cor: período predominante | Intensidade: incidência relativa",    
+    fill = "Período"
+  ) +
+  theme_minimal()
+g6
+
+ggsave(here("G6 - Prevalence by Weeks - Brasil- 2024.png"), g6, width = 10, height = 10)
+
 
 ```
