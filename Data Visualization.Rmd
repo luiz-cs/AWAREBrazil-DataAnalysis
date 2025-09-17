@@ -440,6 +440,7 @@ ggsave(here("Graphs/Deaths of All Arboviruses per Selected Municipalities.png"),
 library(geobr)
 library(sf)
 library(scales)
+library(ggsci)
 
 
 ##install.packages("geobr")
@@ -481,6 +482,9 @@ mapa_com_dados <- left_join(mapa_municipios_dados, dados_municipios, by = "code_
 
 ## escala de cores para usar nos gráficos 1 e 2
 cores <- colorRampPalette(c("mistyrose", "black"))
+cores2 <- colorRampPalette(c("mistyrose", "orange", "red", "darkred"))
+cores_lancet <- colorRampPalette(pal_lancet("lanonc")(5))
+
 
 g1 <- ggplot(data = mapa_com_dados) +
   geom_sf(aes(fill = incidence), color = NA) +
@@ -496,38 +500,52 @@ g1 <- ggplot(data = mapa_com_dados) +
   ) +
 theme_minimal() +
 theme(
-  axis.text = element_blank(),
-  panel.grid = element_blank(),
-  axis.title = element_blank()     
+##  axis.text = element_blank(),
+##  panel.grid = element_blank(),
+##  axis.title = element_blank()     
 )
 g1
 
 ggsave(here("G1 - Incidence Brasil- 2024.png"), g1, width = 10, height = 10)
 
 
-### CASES
+### colocando mapa com valores por Estado
 
-g2 <- ggplot(data = mapa_com_dados) +
-  geom_sf(aes(fill = cases/100000), color = NA) +
-  geom_sf(data = estados, fill = NA, color = "black", size = 0.4) +  # bordas dos estados
+dados_estados <- arboviruses_base %>% 
+  filter(year == 2024) %>%
+  mutate(code_state = substr(as.character(ibge), 1, 2)) %>%  # extrai os dois primeiros dígitos do código IBGE
+  group_by(code_state) %>%
+  summarise(
+    incidence = sum(incidence, na.rm = TRUE),
+    cases = sum(cases, na.rm = TRUE),
+    deaths = sum(deaths, na.rm = TRUE),
+    deaths_per_capta = sum(deaths, na.rm = TRUE) / sum(population, na.rm = TRUE),
+    deaths_per_case = sum(deaths, na.rm = TRUE) / sum(cases, na.rm = TRUE)
+  ) %>%
+  mutate(code_state = as.integer(code_state))
+
+mapa_estados_dados <- left_join(estados, dados_estados, by = "code_state")
+
+g1_estado <- ggplot(data = mapa_estados_dados) +
+  geom_sf(aes(fill = incidence), color = "white") +
   scale_fill_gradientn(
     colours = cores(200),
     na.value = "gray90",
-    name = "Cases (/100.000)"
+    name = "Cumulative Incidence"
   ) +
   labs(
-    title = "Cases Dengue per Municipality 2024",
-    subtitle = "",
+    title = "Cumulative Incidence by State - 2024",
+    subtitle = ""
   ) +
-theme_minimal() +
-theme(
-  axis.text = element_blank(),
-  panel.grid = element_blank(),
-  axis.title = element_blank()     
-)
-g2
+  theme_minimal() +
+  theme(
+##    axis.text = element_blank(),
+##    panel.grid = element_blank(),
+##    axis.title = element_blank()
+  )
+g1_estado
 
-ggsave(here("G2 - Cases Brasil- 2024.png"), g2, width = 10, height = 10)
+ggsave(here("G1 - Incidence Brasil - state visualization- 2024.png"), g1_estado, width = 10, height = 10)
 
 
 ### DEATHS PER CAPTA
@@ -553,6 +571,30 @@ theme(
 g3
 
 ggsave(here("G3 - Deaths per capta Brasil - 2024.png"), g3, width = 10, height = 10)
+
+
+
+g3_estado <- ggplot(data = mapa_estados_dados) +
+  geom_sf(aes(fill = deaths_per_capta*1000), color = "white") +
+  scale_fill_gradientn(
+    colours = cores2(200),
+    na.value = "gray90",
+    name = "Cumulative deaths per 1.000 pop."
+  ) +
+  labs(
+    title = "Cumulative deaths per 1.000 pop. by State - 2024",
+    subtitle = ""
+  ) +
+  theme_minimal() +
+  theme(
+##    axis.text = element_blank(),
+##    panel.grid = element_blank(),
+##    axis.title = element_blank()
+  )
+g3_estado
+
+ggsave(here("G3 - Deaths per capta - Brasil - state visualization- 2024.png"), g3_estado, width = 10, height = 10)
+
 
 ### gradiante do gráfico
 
