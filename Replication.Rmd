@@ -1121,7 +1121,7 @@ sum_risk_country <- create_risk_plot(
   geom_text(data = emergency_state_labels, aes(x = week2, y = 230, label = uf_labels), vjust = 1.5, size = 3.5)
 
 print(sum_risk_country)
-ggsave(here("Graphs/Risk Levels of Arbovirus (Sum) Outbreak in 2024 in Brazil with Emergency Dec.png"), sum_risk_country, height = 8, width = 15, dpi = 300, create.dir = TRUE)
+ggsave(here("Graphs/Risk Levels of Arbovirus (Sum) Outbreak in 2024 in Brazil with Emergency Dec.png"), sum_risk_country, height = 10, width = 12, dpi = 300, create.dir = TRUE)
 ```
 
 ### State-level 
