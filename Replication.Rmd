@@ -306,7 +306,7 @@ create_arbovirus_plot(
   legend_position = "top",
   facet_by = "muni_name",
   year_interval = 2,
-  file_name = "Incidence of All Dengue Selected Municipalities.png"
+  file_name = "Incidence of Dengue per Selected Municipalities.png"
 )
 ```
 
