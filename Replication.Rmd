@@ -526,7 +526,7 @@ dengue_capitals_map_data <- dengue_capitals_map_data %>%
 ### MAP 1: CUMULATIVE INCIDENCE
 
 dengue_incidence_map_themed <- ggplot() +
-  geom_sf(data = dengue_states_map_data, aes(fill = incidence_cat), color = "black", linewidth = 0.2) +
+  geom_sf(data = dengue_states_map_data, aes(fill = incidence_cat), color = "black", linewidth = 0.5) +
   geom_sf(data = dengue_capitals_map_data, aes(size = incidence_cat), 
           shape = 21, fill = NA, color = "darkgrey", alpha = 1, stroke = 2) +
   scale_fill_lancet(
@@ -553,12 +553,12 @@ dengue_incidence_map_themed <- ggplot() +
   )
 
 print(dengue_incidence_map_themed)
-ggsave(here("Graphs", paste0("Map Dengue Incidence 2024", epi_year_to_plot, ".png")), dengue_incidence_map_themed, width = 12, height = 10, dpi = 300)
+ggsave(here("Graphs", paste0("Map Dengue Incidence ", epi_year_to_plot, ".png")), dengue_incidence_map_themed, width = 12, height = 10, dpi = 300)
 
 ### MAP 2: CUMULATIVE DEATH RATE
 
 dengue_deaths_rate_map_themed <- ggplot() +
-  geom_sf(data = dengue_states_map_data, aes(fill = death_rate_cat), color = "black", linewidth = 0.2) +
+  geom_sf(data = dengue_states_map_data, aes(fill = death_rate_cat), color = "black", linewidth = 0.5) +
   geom_sf(data = dengue_capitals_map_data, aes(size = death_rate_cat), 
           shape = 21, fill = NA, color = "darkgrey", alpha = 1, stroke = 2) +
   scale_fill_lancet(
@@ -585,7 +585,7 @@ dengue_deaths_rate_map_themed <- ggplot() +
   )
 
 print(dengue_deaths_rate_map_themed)
-ggsave(here("Graphs", paste0("Map Dengue Death 2024", epi_year_to_plot, ".png")), dengue_deaths_rate_map_themed, width = 12, height = 10, dpi = 300)
+ggsave(here("Graphs", paste0("Map Dengue Death ", epi_year_to_plot, ".png")), dengue_deaths_rate_map_themed, width = 12, height = 10, dpi = 300)
 ```
 
 # Risk Assessment
@@ -617,24 +617,26 @@ risk_analysis <- function(df, analysis_year = 2024) {
     # === Part 1: Identify Epidemic Years based on Risk Score ===
     # The goal of this part is to analyze all historical data to determine which years behaved like epidemics.
 
-    # Create a preliminary endemic channel using ALL historical data.
+    # Create a preliminary endemic channel using historical data.
     preliminary_channel <- df %>%
       # 1. Select only data from epidemiological years before the analysis_year and exclude 2014 due to incomplete data
       filter(year_week40 < analysis_year & year_week40 >= 2015) %>%
       # 2. Group data by the epidemiological week number.
       group_by(week2 = epidemiologic_week_startsweek40) %>%
-      # 3. For each week, calculate the historical median and standard deviation of incidence.
-      summarise(median_incidence = median(incidence, na.rm = TRUE), sd_incidence = sd(incidence, na.rm = TRUE), .groups = "drop") %>%
-      # 4. Calculate the upper alert threshold (95% confidence interval).
-      mutate(high = median_incidence + (1.96 * sd_incidence))
+      # 3. For each week, calculate the historical median, 95th percentile, and 25th percentile of incidence.
+      summarise(
+        median_incidence = median(incidence, na.rm = TRUE),
+        high = quantile(incidence, 0.95, na.rm = TRUE),
+        low = quantile(incidence, 0.25, na.rm = TRUE),
+        .groups = "drop")
 
     # Check if there is enough historical data to proceed.
     if(nrow(preliminary_channel) == 0) return(NULL)
 
-    # Assess all historical years against the preliminary channel to find epidemic years.
+    # Assess historical years against the preliminary channel to find epidemic years.
     risk_all_years <- df %>%
-      # 1. Select only historical data.
-      filter(year_week40 < analysis_year) %>%
+      # 1. Select only historical data and exclude 2014 due to incomplete data
+      filter(year_week40 < analysis_year & year_week40 >= 2015) %>%
       # 2. Add the calculated median_incidence and high threshold to each row based on its week.
       left_join(preliminary_channel, by = c("epidemiologic_week_startsweek40" = "week2")) %>%
       # 3. Group the data by year to analyze each year independently.
@@ -701,7 +703,9 @@ risk_analysis <- function(df, analysis_year = 2024) {
     # final, reliable baseline and assess the current analysis_year against it.
 
     # Isolate the incidence and death data for the current analysis_year.
-    incidence_current_year <- df %>% filter(year_week40 == analysis_year) %>% transmute(incidence_current = incidence, deaths, week2 = epidemiologic_week_startsweek40)
+    incidence_current_year <- df %>% 
+      filter(year_week40 == analysis_year) %>% 
+      transmute(incidence_current = incidence, deaths, week2 = epidemiologic_week_startsweek40) 
 
     # Build the final, clean endemic channel.
     control_data <- df %>%
@@ -709,12 +713,14 @@ risk_analysis <- function(df, analysis_year = 2024) {
       filter(year_week40 %in% non_epidemic_years) %>%
       # 2. Group by week.
       group_by(week2 = epidemiologic_week_startsweek40) %>%
-      # 3. Recalculate the median and standard deviation using this cleaner data.
-      summarise(median_incidence = median(incidence, na.rm = TRUE), sd_incidence = sd(incidence, na.rm = TRUE), .groups = "drop") %>%
-      # 4. Create the final upper and lower thresholds for the control diagram.
-      mutate(high = median_incidence + 1.96*sd_incidence, low = pmax(0, median_incidence - 1.96*sd_incidence)) %>%
+      # 3. For each week, calculate the historical median, 95th percentile, and 25th percentile of incidence.
+      summarise(
+        median_incidence = median(incidence, na.rm = TRUE),
+        high = quantile(incidence, 0.95, na.rm = TRUE),
+        low = quantile(incidence, 0.25, na.rm = TRUE),
+        .groups = "drop") %>% 
       # 5. Join the final channel data with the current year's data.
-      left_join(incidence_current_year, by = "week2")
+      full_join(incidence_current_year, by = "week2")
 
     # Perform the final risk assessment for the analysis_year.
     risk_final <- control_data %>%
@@ -954,8 +960,7 @@ emergency_country <- tibble::tibble(
   ) %>%
   left_join(epiweek40, by = "wy") %>% # Join with epiweek40 to get the epidemiological week
   rename(week2 = epidemiologic_week_startsweek40) %>% # Rename column for consistency
-  mutate(week2 = as.numeric(as.character(week2))) %>% 
-  filter(year == 2024) 
+  mutate(week2 = as.numeric(as.character(week2)))
 
 # State Emergency Declarations
 emergency_state <- tibble::tribble(
@@ -1029,7 +1034,7 @@ emergency_state_for_muni_plot <- emergency_state %>%
 ## Visualizing Risk Assessment and Emergency Declarations in 2024
 
 ```{r function-risk-plot}
-create_risk_plot <- function(data, title, subtitle, facet_var = NULL) {
+create_risk_plot <- function(data, facet_var = NULL) {
   
   # Base plot
   p <- data %>%
@@ -1082,7 +1087,6 @@ theme_classic(base_size = 14) +
       legend.box = "vertical"
     ) +
     labs(
-      title = title, subtitle = subtitle,
       y = "Incidence Rate (per 100,000)", x = "Epidemiological Week")
 
   # Add faceting if a facet variable is provided
@@ -1097,29 +1101,24 @@ theme_classic(base_size = 14) +
 ### Country-wide
 
 #### Dengue
-```{r risk-country-dengue, fig.width=15, fig.height=8}
+```{r risk-country-dengue, fig.width=12, fig.height=10}
 dengue_risk_country <- create_risk_plot(
-  data = risk_2024_country %>% filter(virus == "Dengue"),
-  title = "Risk Levels of Dengue Outbreak in 2024 (Brazil)",
-  subtitle = ("Solid line = Creation of Public Health Emergency Operations Center. Dashed lines = Emergency Declarations by States.")) +
+  data = risk_2024_country %>% filter(virus == "Dengue")) +
   geom_vline(data = emergency_country, aes(xintercept = week2), linetype = "solid", color = "black", size = 1) +
-  geom_vline(data = emergency_state, aes(xintercept = week2), linetype = "dashed", color = "black") +
-  geom_text(data = emergency_state_labels, aes(x = week2, y = Inf, label = uf_labels), vjust = 1.5, size = 2.5)
+  geom_vline(data = emergency_state, aes(xintercept = week2), linetype = "dashed", color = "black", size = 1) +
+  geom_text(data = emergency_state_labels, aes(x = week2, y = 220, label = uf_labels), vjust = 1.5, size = 3.5)
 
 print(dengue_risk_country)
-ggsave(here("Graphs/Risk Levels of Dengue Outbreak in 2024 in Brazil with Emergency Dec.png"), dengue_risk_country, height = 8, width = 15, dpi = 300, create.dir = TRUE)
+ggsave(here("Graphs/Risk Levels of Dengue Outbreak in 2024 in Brazil with Emergency Dec.png"), dengue_risk_country, height = 10, width = 12, dpi = 300, create.dir = TRUE)
 ```
 
 #### Dengue, Chikungunya, and Zika
-```{r risk-country-threee, fig.width=15, fig.height=8}
+```{r risk-country-threee, fig.width=12, fig.height=10}
 sum_risk_country <- create_risk_plot(
-  data = risk_2024_country %>% filter(virus == "Sum of Arboviruses"),
-  title = "Risk Levels of Sum of Arboviruses in 2024 (Brazil)",
-  subtitle = "Solid line = Creation of Public Health Emergency Operations Center. Dashed lines = Emergency Declarations by States."
-) +
+  data = risk_2024_country %>% filter(virus == "Sum of Arboviruses")) +
   geom_vline(data = emergency_country, aes(xintercept = week2), linetype = "solid", color = "black", size = 1) +
-  geom_vline(data = emergency_state, aes(xintercept = week2), linetype = "dashed", color = "black") +
-  geom_text(data = emergency_state_labels, aes(x = week2, y = Inf, label = uf_labels), vjust = 1.5, size = 2.5)
+  geom_vline(data = emergency_state, aes(xintercept = week2), linetype = "dashed", color = "black", size = 1) +
+  geom_text(data = emergency_state_labels, aes(x = week2, y = 230, label = uf_labels), vjust = 1.5, size = 3.5)
 
 print(sum_risk_country)
 ggsave(here("Graphs/Risk Levels of Arbovirus (Sum) Outbreak in 2024 in Brazil with Emergency Dec.png"), sum_risk_country, height = 8, width = 15, dpi = 300, create.dir = TRUE)
@@ -1128,61 +1127,51 @@ ggsave(here("Graphs/Risk Levels of Arbovirus (Sum) Outbreak in 2024 in Brazil wi
 ### State-level 
 
 #### Dengue
-```{r risk-state-dengue, fig.width=18, fig.height=12}
+```{r risk-state-dengue, fig.width=12, fig.height=10}
 dengue_risk_state <- create_risk_plot(
   data = risk_2024_state %>% filter(virus == "Dengue"),
-  title = "Risk Levels of Dengue Outbreak in 2024 (by State)",
-  subtitle = "Dashed lines = Emergency Declarations by States",
-  facet_var = "uf"
-) + geom_vline(data = emergency_state, aes(xintercept = week2), linetype = "dashed", color = "black")
+  facet_var = "uf") + 
+  geom_vline(data = emergency_state, aes(xintercept = week2), linetype = "dashed", color = "black", size = 1.5)
 
 print(dengue_risk_state)
-ggsave(here("Graphs/Risk Levels of Dengue Outbreak in 2024 per State with Emergency Dec.png"), dengue_risk_state, height = 12, width = 18, dpi = 300, create.dir = TRUE)
+ggsave(here("Graphs/Risk Levels of Dengue Outbreak in 2024 per State with Emergency Dec.png"), dengue_risk_state, height = 10, width = 12, dpi = 300, create.dir = TRUE)
 ```
     
 #### Dengue, Chikungunya, and Zika
-```{r risk-state-threee, fig.width=18, fig.height=12}
+```{r risk-state-threee, fig.width=12, fig.height=10}
 sum_risk_state <- create_risk_plot(
   data = risk_2024_state %>% filter(virus == "Sum of Arboviruses"),
-  title = "Risk Levels of Sum of Arboviruses in 2024 (by State)",
-  subtitle = "Dashed lines = Emergency Declarations by States",
-  facet_var = "uf"
-) + geom_vline(data = emergency_state, aes(xintercept = week2), linetype = "dashed", color = "black")
+  facet_var = "uf") + 
+  geom_vline(data = emergency_state, aes(xintercept = week2), linetype = "dashed", color = "black", size = 1.5)
 
 print(sum_risk_state)
-ggsave(here("Graphs/Risk Levels of Arbovirus (Sum) Outbreak in 2024 per State with Emergency Dec.png"), sum_risk_state, height = 12, width = 18, dpi = 300, create.dir = TRUE)
+ggsave(here("Graphs/Risk Levels of Arbovirus (Sum) Outbreak in 2024 per State with Emergency Dec.png"), sum_risk_state, height = 10, width = 12, dpi = 300, create.dir = TRUE)
 ```
 
 ### Selected Municipalities
 
 #### Dengue
-```{r risk-muni-dengue, fig.width=18, fig.height=12}
+```{r risk-muni-dengue, fig.width=12, fig.height=10}
 dengue_risk_muni <- create_risk_plot(
   data = risk_2024_muni %>% filter(virus == "Dengue"),
-  title = "Risk Levels of Dengue Outbreak in 2024 (Selected Municipalities)",
-  subtitle = "Dotted line = Municipal Declaration. Dashed line = State Declaration",
-  facet_var = "municipality"
-) +
-  geom_vline(data = emergency_muni, aes(xintercept = week2), linetype = "dotted", color = "black") +
-  geom_vline(data = emergency_state_for_muni_plot, aes(xintercept = week2), linetype = "dashed", color = "black")
+  facet_var = "municipality") +
+  geom_vline(data = emergency_muni, aes(xintercept = week2), linetype = "dotted", color = "black", size = 1.5) +
+  geom_vline(data = emergency_state_for_muni_plot, aes(xintercept = week2), linetype = "dashed", color = "black", size = 1.5)
 
 print(dengue_risk_muni)
-ggsave(here("Graphs/Risk Levels of Dengue Outbreak in 2024 per Municipality with Emergency Dec.png"), dengue_risk_muni, height = 12, width = 18, dpi = 300, create.dir = TRUE)
+ggsave(here("Graphs/Risk Levels of Dengue Outbreak in 2024 per Municipality with Emergency Dec.png"), dengue_risk_muni, height = 10, width = 12, dpi = 300, create.dir = TRUE)
 ```
 
 #### Dengue, Chikungunya, and Zika
-```{r risk-muni-threee, fig.width=18, fig.height=12}
+```{r risk-muni-threee, fig.width=12, fig.height=10}
 sum_risk_muni <- create_risk_plot(
   data = risk_2024_muni %>% filter(virus == "Sum of Arboviruses"),
-  title = "Risk Levels of Sum of Arboviruses in 2024 (Selected Municipalities)",
-  subtitle = "Dotted line = Municipal Declaration. Dashed line = State Declaration",
-  facet_var = "municipality"
-) +
-  geom_vline(data = emergency_muni, aes(xintercept = week2), linetype = "dotted", color = "black") +
-  geom_vline(data = emergency_state_for_muni_plot, aes(xintercept = week2), linetype = "dashed", color = "black")
+  facet_var = "municipality") +
+  geom_vline(data = emergency_muni, aes(xintercept = week2), linetype = "dotted", color = "black", size = 1.5) +
+  geom_vline(data = emergency_state_for_muni_plot, aes(xintercept = week2), linetype = "dashed", color = "black", size = 1.5)
 
 print(sum_risk_muni)
-ggsave(here("Graphs/Risk Levels of Arbovirus (Sum) Outbreak in 2024 per Municipality with Emergency Dec.png"), sum_risk_muni, height = 12, width = 18, dpi = 300, create.dir = TRUE)
+ggsave(here("Graphs/Risk Levels of Arbovirus (Sum) Outbreak in 2024 per Municipality with Emergency Dec.png"), sum_risk_muni, height = 10, width = 12, dpi = 300, create.dir = TRUE)
 ```
 
 ## Mapping First Week Alert in 2024
@@ -1231,7 +1220,7 @@ dengue_map_data_capitals <- dengue_map_data_capitals %>%
 # Generate the Map
 #---------------------------------
 dengue_risk_map_themed <- ggplot() +
- geom_sf(data = dengue_map_data_states, aes(fill = alert_week_group), color = "black", linewidth = 0.2) +
+ geom_sf(data = dengue_map_data_states, aes(fill = alert_week_group), color = "black", linewidth = 0.5) +
  geom_sf(data = dengue_map_data_capitals, aes(shape = alert_week_group),
  fill = NA, color = "darkgrey", alpha = 1, size = 2, stroke = 2) +
  scale_fill_lancet(
@@ -1255,5 +1244,5 @@ dengue_risk_map_themed <- ggplot() +
  )
 
 print(dengue_risk_map_themed)
-ggsave(here("Graphs", paste0("Map First Week Alert 2024", epi_year_to_plot, ".png")), dengue_risk_map_themed, width = 12, height = 10, dpi = 300)
+ggsave(here("Graphs", paste0("Map First Week Alert ", epi_year_to_plot, ".png")), dengue_risk_map_themed, width = 12, height = 10, dpi = 300)
 ```
