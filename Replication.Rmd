@@ -87,19 +87,18 @@ codibge <- list(
 ## Grouping by Municipality, State, and Country
 
 ```{r group-data}
-# 1. Create a single, clean base dataset with all necessary time variables
+# 1. Create the variables
 arboviruses_base <- arboviruses_full %>%
-  filter(!is.na(municipality)) %>%
   group_by(ibge, class_regiao, uf, municipality, year, week, virus) %>%
   summarise(
     cases = sum(likely_cases, na.rm = TRUE),
-    population = first(population),
+    population = unique(population),
     deaths = sum(deaths, na.rm = TRUE),
     .groups = "drop"
   ) %>%
   mutate(wy = paste0(year, "w", as.integer(week))) %>%
   left_join(epiweek40, by = "wy") %>%
-  filter(!is.na(municipality)) %>%
+  mutate(epidemiologic_week_startsweek40 = as.numeric(as.character(epidemiologic_week_startsweek40))) %>%
   mutate(
     cases = replace_na(cases, 0),
     deaths = replace_na(deaths, 0)
@@ -119,7 +118,7 @@ arboviruses_state_ind <- arboviruses_base %>%
   group_by(uf, year, week, virus, wy, year_week40, epidemiologic_week_startsweek40, yw, epi_label) %>%
   summarise(
     cases = sum(cases, na.rm = TRUE),
-    # CORRECT LOGIC: Sum the populations of all municipalities within the state
+    # Sum the populations of all municipalities within the state
     population = sum(population, na.rm = TRUE),
     deaths = sum(deaths, na.rm = TRUE), .groups = "drop") %>%
   mutate(incidence = ifelse(population > 0, (cases / population) * 100000, 0))
@@ -1039,12 +1038,14 @@ create_risk_plot <- function(data, facet_var = NULL) {
   # Base plot
   p <- data %>%
     ggplot(aes(x = week2)) +
-    # Endemic channel rectangle - background
-    geom_rect(aes(xmin = week2 - 0.5, xmax = week2 + 0.5, ymin = low, ymax = high, fill = "Endemic Channel"), alpha = 0.5) +
     # Incidence bars colored by risk level
     geom_col(aes(y = incidence_current, fill = riskassessment), width = 1, alpha = 0.8) +
+    # Endemic channel 
+    geom_ribbon(aes(ymin = low, ymax = high, fill = "Endemic Channel"), alpha = 0.5) +
     # Median incidence line
     geom_line(aes(y = median_incidence, color = "Historical Median", linetype = "Historical Median"), linewidth = 0.8) +
+    # Scale x-axis
+    scale_x_continuous(breaks = seq(min(data$week2), max(data$week2), by=5)) +
     # Define custom colors and labels for the fill aesthetic (Risk Levels)
     scale_fill_manual(
        name = "Risk Level & Baseline",
