@@ -87,22 +87,26 @@ codibge <- list(
 ## Grouping by Municipality, State, and Country
 
 ```{r group-data}
-# 1. Create the variables
+# 1. Create the base dataset
 arboviruses_base <- arboviruses_full %>%
   group_by(ibge, class_regiao, uf, municipality, year, week, virus) %>%
   summarise(
     cases = sum(likely_cases, na.rm = TRUE),
-    population = unique(population),
     deaths = sum(deaths, na.rm = TRUE),
     .groups = "drop"
   ) %>%
+  left_join(
+    arboviruses_full %>% 
+      distinct(ibge, year, population),
+    by = c("ibge", "year")
+  ) %>%
   mutate(wy = paste0(year, "w", as.integer(week))) %>%
-  left_join(epiweek40, by = "wy") %>%
+  full_join(epiweek40, by = "wy") %>%
   mutate(epidemiologic_week_startsweek40 = as.numeric(as.character(epidemiologic_week_startsweek40))) %>%
   mutate(
     cases = replace_na(cases, 0),
     deaths = replace_na(deaths, 0)
-    ) %>%
+  ) %>%
   arrange(year_week40, epidemiologic_week_startsweek40) %>%
   mutate(
     incidence = ifelse(population > 0, (cases / population) * 100000, 0),
@@ -111,6 +115,17 @@ arboviruses_base <- arboviruses_full %>%
     epi_label = paste0(year_week40, "w", epidemiologic_week_startsweek40)
   )
 
+# Calculate population
+state_populations <- arboviruses_base %>%
+  distinct(uf, ibge, year, .keep_all = TRUE) %>%
+  group_by(uf, year) %>%
+  summarise(total_population = sum(population, na.rm = TRUE), .groups = "drop")
+
+country_populations <- arboviruses_base %>%
+  distinct(ibge, year, .keep_all = TRUE) %>%
+  group_by(year) %>%
+  summarise(total_population = sum(population, na.rm = TRUE), .groups = "drop")
+
 # 2. Create datasets for each geographic level
 arboviruses_muni_ind <- arboviruses_base %>% filter(ibge %in% unlist(codibge))
 
@@ -118,20 +133,26 @@ arboviruses_state_ind <- arboviruses_base %>%
   group_by(uf, year, week, virus, wy, year_week40, epidemiologic_week_startsweek40, yw, epi_label) %>%
   summarise(
     cases = sum(cases, na.rm = TRUE),
-    # Sum the populations of all municipalities within the state
-    population = sum(population, na.rm = TRUE),
-    deaths = sum(deaths, na.rm = TRUE), .groups = "drop") %>%
+    deaths = sum(deaths, na.rm = TRUE), 
+    .groups = "drop"
+  ) %>%
+  left_join(state_populations, by = c("uf", "year")) %>%
+  rename(population = total_population) %>% # Rename for consistency
   mutate(incidence = ifelse(population > 0, (cases / population) * 100000, 0))
 
 arboviruses_country_ind <- arboviruses_base %>%
   group_by(year, week, virus, wy, year_week40, epidemiologic_week_startsweek40, yw, epi_label) %>%
   summarise(
     cases = sum(cases, na.rm = TRUE),
-    population = sum(population, na.rm = TRUE),
-    deaths = sum(deaths, na.rm = TRUE), .groups = "drop") %>%
+    deaths = sum(deaths, na.rm = TRUE), 
+    .groups = "drop"
+  ) %>%
+  left_join(country_populations, by = "year") %>%
+  rename(population = total_population) %>%
   mutate(
     incidence = ifelse(population > 0, (cases / population) * 100000, 0),
-    country = "Brazil")
+    country = "Brazil"
+  )
 
 # 3. Create summed datasets and bind them back
 time_cols <- c("year", "week", "wy", "year_week40", "epidemiologic_week_startsweek40", "yw", "epi_label")
@@ -719,7 +740,7 @@ risk_analysis <- function(df, analysis_year = 2024) {
         low = quantile(incidence, 0.25, na.rm = TRUE),
         .groups = "drop") %>% 
       # 5. Join the final channel data with the current year's data.
-      full_join(incidence_current_year, by = "week2")
+      left_join(incidence_current_year, by = "week2")
 
     # Perform the final risk assessment for the analysis_year.
     risk_final <- control_data %>%
