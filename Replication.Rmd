@@ -113,7 +113,9 @@ arboviruses_base <- arboviruses_full %>%
     yw = as.character(paste0(year_week40, "-", epidemiologic_week_startsweek40)),
     yw = forcats::fct_inorder(yw),
     epi_label = paste0(year_week40, "w", epidemiologic_week_startsweek40)
-  )
+  ) %>%
+  arrange(ibge,virus,year,week) %>% group_by(ibge,virus,year) %>% mutate(deaths_cumulative = cumsum(deaths)) %>% ungroup()
+
 
 # Calculate population
 state_populations <- arboviruses_base %>%
@@ -138,7 +140,9 @@ arboviruses_state_ind <- arboviruses_base %>%
   ) %>%
   left_join(state_populations, by = c("uf", "year")) %>%
   rename(population = total_population) %>% # Rename for consistency
-  mutate(incidence = ifelse(population > 0, (cases / population) * 100000, 0))
+  mutate(incidence = ifelse(population > 0, (cases / population) * 100000, 0)) %>%
+  arrange(uf,virus,year,week) %>% group_by(uf,virus,year) %>% mutate(deaths_cumulative = cumsum(deaths)) %>% ungroup()
+
 
 arboviruses_country_ind <- arboviruses_base %>%
   group_by(year, week, virus, wy, year_week40, epidemiologic_week_startsweek40, yw, epi_label) %>%
@@ -152,21 +156,27 @@ arboviruses_country_ind <- arboviruses_base %>%
   mutate(
     incidence = ifelse(population > 0, (cases / population) * 100000, 0),
     country = "Brazil"
-  )
+  ) %>%
+  arrange(virus,year,week) %>% group_by(virus,year) %>% mutate(deaths_cumulative = cumsum(deaths)) %>% ungroup()
+
 
 # 3. Create summed datasets and bind them back
 time_cols <- c("year", "week", "wy", "year_week40", "epidemiologic_week_startsweek40", "yw", "epi_label")
 sum_muni <- arboviruses_muni_ind %>% group_by(across(all_of(c("ibge", "class_regiao", "uf", "municipality", time_cols)))) %>%
   summarise(cases = sum(cases, na.rm = TRUE), population = max(population), deaths = sum(deaths, na.rm = TRUE), .groups = "drop") %>%
-  mutate(incidence = ifelse(population > 0, (cases / population) * 100000, 0), virus = "Sum of Arboviruses")
+  mutate(incidence = ifelse(population > 0, (cases / population) * 100000, 0), virus = "Sum of Arboviruses") %>%
+  arrange(ibge,year,week) %>% group_by(ibge,year) %>% mutate(deaths_cumulative = cumsum(deaths)) %>% ungroup()
 
 sum_state <- arboviruses_state_ind %>% group_by(across(all_of(c("uf", time_cols)))) %>%
   summarise(cases = sum(cases, na.rm = TRUE), population = max(population), deaths = sum(deaths, na.rm = TRUE), .groups = "drop") %>%
-  mutate(incidence = ifelse(population > 0, (cases / population) * 100000, 0), virus = "Sum of Arboviruses")
+  mutate(incidence = ifelse(population > 0, (cases / population) * 100000, 0), virus = "Sum of Arboviruses") %>%
+  arrange(uf,year,week) %>% group_by(uf,year) %>% mutate(deaths_cumulative = cumsum(deaths)) %>% ungroup()
+
 
 sum_country <- arboviruses_country_ind %>% group_by(country, across(all_of(time_cols))) %>%
   summarise(cases = sum(cases, na.rm = TRUE), population = max(population), deaths = sum(deaths, na.rm = TRUE), .groups = "drop") %>%
-  mutate(incidence = ifelse(population > 0, (cases / population) * 100000, 0), virus = "Sum of Arboviruses")
+  mutate(incidence = ifelse(population > 0, (cases / population) * 100000, 0), virus = "Sum of Arboviruses") %>%
+  arrange(year,week) %>% group_by(year) %>% mutate(deaths_cumulative = cumsum(deaths)) %>% ungroup()
 
 # 4. Bind the final datasets
 arboviruses_muni <- bind_rows(arboviruses_muni_ind, sum_muni) %>%
@@ -362,6 +372,16 @@ create_arbovirus_plot(
   legend_position = "top",
   file_name = "Deaths of Dengue in Brazil.png"
 )
+
+create_arbovirus_plot(
+  data = arboviruses_country,
+  y_var = deaths_cumulative,
+  virus_filter_expr = virus == "Dengue",
+  y_lab = "Cumulative Number of Deaths",
+  grouping_var = 1,
+  legend_position = "top",
+  file_name = "Cumulative Deaths of Dengue in Brazil.png"
+)
 ```
 
 #### Dengue, Chikungunya, and Zika
@@ -391,6 +411,18 @@ create_arbovirus_plot(
   facet_by = "uf",
   year_interval = 2,
   file_name = "Deaths of Dengue per State.png"
+)
+
+create_arbovirus_plot(
+  data = arboviruses_state,
+  y_var = deaths_cumulative,
+  virus_filter_expr = virus == "Dengue",
+  y_lab = "Cumulative Number of Deaths",
+  grouping_var = 1,
+  legend_position = "top",
+  facet_by = "uf",
+  year_interval = 2,
+  file_name = "Cumulative Deaths of Dengue per State.png"
 )
 ```
 
@@ -424,6 +456,18 @@ create_arbovirus_plot(
   year_interval = 2,
   file_name = "Deaths of Dengue per Selected Municipalities.png"
 )
+
+create_arbovirus_plot(
+  data = arboviruses_muni,
+  y_var = deaths_cumulative,
+  virus_filter_expr = virus == "Dengue",
+  y_lab = "Cumulative Number of Deaths",
+  grouping_var = 1,
+  legend_position = "top",
+  facet_by = "muni_name",
+  year_interval = 2,
+  file_name = "Cumulative Deaths of Dengue per Selected Municipalities.png"
+)
 ```
 
 #### Dengue, Chikungunya, and Zika
@@ -439,6 +483,19 @@ create_arbovirus_plot(
   year_interval = 2,
   file_name = "Deaths of All Arboviruses per Selected Municipalities.png"
 )
+
+create_arbovirus_plot(
+  data = arboviruses_muni,
+  y_var = deaths_cumulative,
+  virus_filter_expr = virus == "Sum of Arboviruses",
+  y_lab = "Number of Deaths",
+  grouping_var = virus,
+  legend_position = "top",
+  facet_by = "muni_name",
+  year_interval = 2,
+  file_name = "Deaths of All Arboviruses per Selected Municipalities.png"
+)
+
 ```
 
 ---
