@@ -98,7 +98,7 @@ codibge <- list(
 # 1. Create the base dataset
 arboviruses_base <- arboviruses_full %>%
   select(ibge, calendar_year_week, municipality, uf, virus, likely_cases, deaths, population) %>%
-  full_join(epiweek40, by = "calendar_year_week") %>%
+  left_join(epiweek40, by = "calendar_year_week") %>%
   arrange(epi_year, epi_week) %>%
   filter(!is.na(municipality), !is.na(epi_year), !is.na(epi_week))
 
@@ -345,7 +345,7 @@ create_arbovirus_plot(
   y_var = incidence,
   virus_filter_expr = virus == "Dengue",
   y_lab = "Incidence Rate (per 100,000 pop.)",
-  grouping_var = epi_year,
+  grouping_var = virus,
   legend_position = "top",
   file_name = "Incidence of Dengue in Brazil.png"
 )
@@ -356,7 +356,7 @@ create_arbovirus_plot(
 create_arbovirus_plot(
   data = arboviruses_country,
   y_var = incidence,
-  virus_filter_expr = virus != "Sum of Arboviruses",
+  virus_filter_expr = virus == "Sum of Arboviruses",
   y_lab = "Incidence Rate (per 100,000 pop.)",
   grouping_var = virus,
   legend_position = "top",
@@ -373,7 +373,7 @@ create_arbovirus_plot(
   y_var = incidence,
   virus_filter_expr = virus == "Dengue",
   y_lab = "Incidence Rate (per 100,000 pop.)",
-  grouping_var = 1,
+  grouping_var = virus,
   legend_position = "top",
   facet_by = "uf",
   year_interval = 2,
@@ -441,7 +441,7 @@ create_arbovirus_plot(
   y_var = death_rate,
   virus_filter_expr = virus == "Dengue",
   y_lab = "Death Rate (per 100,000 pop.)",
-  grouping_var = epi_year,
+  grouping_var = virus,
   legend_position = "top",
   file_name = "Deaths of Dengue in Brazil.png"
 )
@@ -452,7 +452,7 @@ create_arbovirus_plot(
 create_arbovirus_plot(
   data = arboviruses_country,
   y_var = death_rate,
-  virus_filter_expr = virus != "Sum of Arboviruses",
+  virus_filter_expr = virus == "Sum of Arboviruses",
   y_lab = "Death Rate (per 100,000 pop.)",
   grouping_var = virus,
   legend_position = "top",
@@ -469,7 +469,7 @@ create_arbovirus_plot(
   y_var = cumulative_death_rate,
   virus_filter_expr = virus == "Dengue",
   y_lab = "Cumulative Death Rate (per 100,000 pop.) per Epidemiological Year",
-  grouping_var = 1,
+  grouping_var = virus,
   legend_position = "top",
   facet_by = "uf",
   year_interval = 2,
@@ -501,7 +501,7 @@ create_arbovirus_plot(
   y_var = cumulative_death_rate,
  virus_filter_expr = virus == "Dengue",
   y_lab = "Cumulative Death Rate (per 100,000 pop.) per Epidemiological Year",
-  grouping_var = 1,
+  grouping_var = virus,
   legend_position = "top",
   facet_by = "muni_name",
   year_interval = 2,
@@ -558,17 +558,6 @@ dengue_capitals_map_data <- arboviruses_muni %>%
   left_join(capitals_points, ., by = c("code_muni" = "ibge")) %>% 
   filter(!is.na(municipality), !is.na(epi_year), !is.na(epi_week))
 
-# Helper function to create clean labels for plot
-create_clean_labels <- function(breaks) {
-  labels <- c()
-  for (i in 1:(length(breaks) - 1)) {
-    start <- formatC(breaks[i], format = "f", digits = 2, big.mark = ",")
-    end <- formatC(breaks[i+1], format = "f", digits = 2, big.mark = ",")
-    labels[i] <- paste0(start, " - ", end)
-  }
-  return(labels)
-}
-
 # Define breaks for Incidence
 inc_breaks <- c(0, 500, 2500, Inf) 
 inc_labels <- c("0 - 499", "500 - 2,499", "2,500+")
@@ -600,12 +589,12 @@ dengue_incidence_map_themed <- ggplot() +
          fill = NA, color = "darkgrey", alpha = 0.7, size = 4, stroke = 2) +
    scale_fill_brewer(
     palette = "Blues",
-    name = "Dengue Incidence (States)\n(per 100,000 pop.)",
+    name = "Cumulative Dengue Incidence (States)\n(per 100,000 pop.)",
     na.translate = FALSE,
     drop = TRUE 
   ) +
   scale_shape_discrete(
-    name = "Dengue Incidence (Capitals)\n(per 100,000 pop.)",
+    name = "Cumulative Dengue Incidence (Capitals)\n(per 100,000 pop.)",
     drop = FALSE
   ) +
   theme_bw() +
@@ -621,7 +610,7 @@ dengue_incidence_map_themed <- ggplot() +
   )
 
 print(dengue_incidence_map_themed)
-ggsave(here("Graphs", paste0("Map Dengue Incidence ", epi_year_to_plot, ".png")), dengue_incidence_map_themed, width = 12, height = 10, dpi = 300)
+ggsave(here("Graphs", paste0("Map Dengue Incidence 2024.png")), dengue_incidence_map_themed, width = 12, height = 10, dpi = 300)
 
 ### MAP 2: CUMULATIVE DEATH RATE
 
@@ -631,12 +620,12 @@ dengue_deaths_rate_map_themed <- ggplot() +
            fill = NA, color = "darkgrey", alpha = 0.7, size = 4, stroke = 2) +
   scale_fill_brewer(
     palette = "Reds",
-    name = "Dengue Death Rate (States)\n(per 100,000 pop.)",
+    name = "Cumulative Dengue Death Rate (States)\n(per 100,000 pop.)",
     na.translate = FALSE,
     drop = TRUE
   ) +
   scale_shape_discrete(
-    name = "Dengue Death Rate (Capitals)\n(per 100,000 pop.)",
+    name = "Cumulative Dengue Death Rate (Capitals)\n(per 100,000 pop.)",
     drop = FALSE
   ) +
   theme_bw() +
@@ -652,7 +641,7 @@ dengue_deaths_rate_map_themed <- ggplot() +
   )
 
 print(dengue_deaths_rate_map_themed)
-ggsave(here("Graphs", paste0("Map Dengue Death ", epi_year_to_plot, ".png")), dengue_deaths_rate_map_themed, width = 12, height = 10, dpi = 300)
+ggsave(here("Graphs", paste0("Map Dengue Death 2024.png")), dengue_deaths_rate_map_themed, width = 12, height = 10, dpi = 300)
 ```
 
 # Risk Assessment
@@ -660,19 +649,6 @@ ggsave(here("Graphs", paste0("Map Dengue Death ", epi_year_to_plot, ".png")), de
 ## Risk assessment function
 
 ```{r risk-function}
-# Helper function (unchanged)
-get_location_name <- function(df) {
-  if ("muni_name" %in% names(df)) {
-    return(paste("municipality:", paste(unique(df$muni_name), collapse = ", ")))
-  } else if ("uf" %in% names(df)) {
-    return(paste("state:", paste(unique(df$uf), collapse = ", ")))
-  } else if ("country" %in% names(df)) {
-    return(paste("country:", paste(unique(df$country), collapse = ", ")))
-  } else {
-    return("unknown location")
-  }
-}
-
 risk_analysis <- function(df, analysis_year = 2024) {
   
   # === PART 1: PREPARE DATA & BUILD ENDEMIC CHANNEL ===
@@ -743,7 +719,7 @@ risk_analysis <- function(df, analysis_year = 2024) {
       deaths_confirmed & (incidence_within_channel | incidence_increase_4w_vs_last_year == 1) ~ 2L,
       
       # INITIAL RESPONSE - No deaths AND EITHER incidence is within the endemic channel OR increase in incidence for four consecutive weeks compared to the previous year
-!deaths_confirmed & (incidence_within_channel | incidence_increase_4w_vs_last_year == 1) ~ 1L,
+      !deaths_confirmed & (incidence_within_channel | incidence_increase_4w_vs_last_year == 1) ~ 1L,
    
         # Default: LOW RISK
         TRUE ~ 0L
@@ -987,11 +963,11 @@ create_risk_plot <- function(data, facet_var = NULL) {
     # Incidence bars colored by risk level
     geom_col(aes(y = incidence_current, fill = riskassessment), width = 1, alpha = 0.8) +
     # Endemic channel 
-    geom_ribbon(aes(ymin = low, ymax = high, fill = "Endemic Channel"), alpha = 0.5) +
+    geom_ribbon(aes(ymin = low, ymax = high, fill = "Endemic Channel", group = 1), alpha = 0.5) +
     # Median incidence line
-    geom_line(aes(y = median_incidence, color = "Historical Median", linetype = "Historical Median"), linewidth = 0.8) +
+    geom_line(aes(y = median_incidence, color = "Historical Median", linetype = "Historical Median", group = 1), linewidth = 0.8) +
     # Scale x-axis
-    scale_x_continuous(breaks = seq(min(data$epi_week), max(data$epi_week), by=5)) +
+    scale_x_continuous(breaks = seq(min(data$epi_week), max(data$epi_week), by=10)) +
     # Define custom colors and labels for the fill aesthetic (Risk Levels)
     scale_fill_manual(
        name = "Risk Level & Baseline",
