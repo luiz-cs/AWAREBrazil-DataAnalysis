@@ -124,7 +124,7 @@ country_population <- arboviruses_base %>%
 # Munis (Individual Viruses)
 arboviruses_muni_ind <- arboviruses_base %>%
   filter(ibge %in% unlist(codibge)) %>%
-  group_by(ibge, municipality, uf, epi_year, epi_week, epi_year_week, virus) %>%
+  group_by(ibge, municipality, uf, calendar_year_week, epi_year, epi_week, epi_year_week, virus) %>%
   summarise(
     cases = sum(likely_cases),
     deaths = sum(deaths),
@@ -146,7 +146,7 @@ arboviruses_muni_ind <- arboviruses_base %>%
 
 # States (Individual Viruses)
 arboviruses_state_ind <- arboviruses_base %>%
-  group_by(uf, epi_year, epi_week, epi_year_week, virus) %>%
+  group_by(uf, calendar_year_week, epi_year, epi_week, epi_year_week, virus) %>%
   summarise(
     cases = sum(likely_cases),
     deaths = sum(deaths),
@@ -168,7 +168,7 @@ arboviruses_state_ind <- arboviruses_base %>%
 
 # Country (Individual Viruses)
 arboviruses_country_ind <- arboviruses_base %>%
-  group_by(epi_year, epi_week, epi_year_week, virus) %>%
+  group_by(calendar_year_week, epi_year, epi_week, epi_year_week, virus) %>%
   summarise(
     cases = sum(likely_cases),
     deaths = sum(deaths),
@@ -193,7 +193,7 @@ arboviruses_country_ind <- arboviruses_base %>%
 
 # Muni (Sum of Viruses)
 all_virus_muni <- arboviruses_muni_ind %>%
-  group_by(ibge, municipality, uf, epi_year, epi_week, epi_year_week) %>%
+  group_by(ibge, municipality, uf, calendar_year_week, epi_year, epi_week, epi_year_week) %>%
   summarise(
     cases = sum(cases),
     deaths = sum(deaths),
@@ -216,7 +216,7 @@ all_virus_muni <- arboviruses_muni_ind %>%
 
 # States (Sum of Viruses)
 all_virus_state <- arboviruses_state_ind %>%
-  group_by(uf, epi_year, epi_week, epi_year_week) %>%
+  group_by(uf, calendar_year_week, epi_year, epi_week, epi_year_week) %>%
   summarise(
     cases = sum(cases),
     deaths = sum(deaths),
@@ -239,7 +239,7 @@ all_virus_state <- arboviruses_state_ind %>%
 
 # Country (Sum of Viruses)
 all_virus_country <- arboviruses_country_ind %>%
-  group_by(epi_year, epi_week, epi_year_week) %>%
+  group_by(calendar_year_week, epi_year, epi_week, epi_year_week) %>%
   summarise(
     cases = sum(cases),
     deaths = sum(deaths),
@@ -294,13 +294,18 @@ create_arbovirus_plot <- function(data, y_var, virus_filter_expr, y_lab,
   grouping_var_quo <- enquo(grouping_var)
   virus_filter_quo <- enquo(virus_filter_expr)
 
-  # Find the first week of each epidemiological year to use as a label
-  axis_breaks <- data %>%
+  # Find the data for the first week of each epidemiological year
+  axis_break_data <- data %>%
     group_by(epi_year) %>%
     slice_head(n = 1) %>%
-        ungroup() %>%
-    slice(seq(1, n(), by = year_interval)) %>%
-    pull(epi_year_week)
+    ungroup() %>%
+    slice(seq(1, n(), by = year_interval))
+    
+  # Get the epi_year_week values for the axis break positions
+  axis_breaks <- axis_break_data %>% pull(epi_year_week)
+  
+  # Get the corresponding calendar_year_week values for the axis labels
+  axis_labels <- axis_break_data %>% pull(calendar_year_week)
 
   # Build the plot
   p <- data %>%
@@ -313,7 +318,7 @@ create_arbovirus_plot <- function(data, y_var, virus_filter_expr, y_lab,
       x = "Epidemiological Year-Week",
       y = y_lab
     ) +
-    scale_x_discrete(breaks = axis_breaks) +
+    scale_x_discrete(breaks = axis_breaks, labels = axis_labels) +
     theme_classic(base_size = 14) + 
     theme(
       axis.title = element_text(face = "bold", size = rel(1)), 
@@ -687,7 +692,7 @@ risk_analysis <- function(df, analysis_year = 2024) {
   # Isolate the current year's data for the analysis
   current_year_data <- df %>%
     filter(epi_year == analysis_year) %>%
-    select(epi_week, incidence_current = incidence, deaths_current = deaths)
+    select(calendar_year_week, epi_week, incidence_current = incidence, deaths_current = deaths)
   
   # Combine endemic channel and current year data
   risk_final <- tibble(epi_week = 1:53) %>% # Ensure all epi_weeks are present
@@ -746,11 +751,11 @@ risk_analysis <- function(df, analysis_year = 2024) {
       (exponential_incidence == 1 | increased_deaths_5w == 1) ~ 3L,
       
       # ALERT - Condition 2 AND/OR Condition 3 AND/OR Condition 4
-      (increased_incidence_high == 1 & increased_deaths_4w == 1 & lethality == 1) |
-      (increased_incidence_high == 1 & increased_deaths_4w == 1) |
-     (increased_incidence_high == 1 & lethality == 1) |
+      (increased_incidence_high_4w == 1 & increased_deaths_4w == 1 & lethality == 1) |
+      (increased_incidence_high_4w == 1 & increased_deaths_4w == 1) |
+     (increased_incidence_high_4w == 1 & lethality == 1) |
       (increased_deaths_4w == 1 & lethality == 1) |
-     (increased_incidence_high == 1 | increased_deaths_4w == 1 | lethality == 1) ~ 2L,
+     (increased_incidence_high_4w == 1 | increased_deaths_4w == 1 | lethality == 1) ~ 2L,
   
       # Mobilization - Condition 1
       increased_incidence_within_4w == 1 ~ 1L,
@@ -989,6 +994,10 @@ emergency_state_for_muni_plot <- emergency_state %>%
 ```{r function-risk-plot}
 create_risk_plot <- function(data, facet_var = NULL) {
   
+  # Define axis breaks and find their corresponding calendar week labels
+  axis_breaks <- seq(min(data$epi_week), max(data$epi_week), by = 10)
+  axis_labels <- data$calendar_year_week[match(axis_breaks, data$epi_week)]
+  
   # Base plot
   p <- data %>%
     ggplot(aes(x = epi_week)) +
@@ -999,7 +1008,7 @@ create_risk_plot <- function(data, facet_var = NULL) {
     # Median incidence line
     geom_line(aes(y = median_incidence, color = "Historical Median", linetype = "Historical Median", group = 1), linewidth = 0.8) +
     # Scale x-axis
-    scale_x_continuous(breaks = seq(min(data$epi_week), max(data$epi_week), by=10)) +
+    scale_x_continuous(breaks = axis_breaks, labels = axis_labels) +
     # Define custom colors and labels for the fill aesthetic (Risk Levels)
     scale_fill_manual(
        name = "Risk Level & Baseline",
@@ -1039,7 +1048,8 @@ theme_classic(base_size = 14) +
       panel.grid.major.y = element_line(color = "grey90", linewidth = 0.5), # Add subtle grid lines
       strip.background = element_rect(fill = "grey92", color = NA), # Style facet titles
       strip.text = element_text(face = "bold", size = rel(0.9)),
-      legend.box = "vertical"
+      legend.box = "vertical",
+      axis.text.x = element_text(angle = 45, hjust = 1)
     ) +
     labs(
       y = "Incidence Rate (per 100,000)", x = "Epidemiological Week")
