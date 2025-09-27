@@ -371,7 +371,7 @@ create_arbovirus_plot(
 create_arbovirus_plot(
   data = arboviruses_country,
   y_var = incidence,
-  virus_filter_expr = virus == "Sum of Arboviruses",
+  virus_filter_expr = virus != "Sum of Arboviruses",
   y_lab = "Incidence Rate (per 100,000 pop.)",
   grouping_var = virus,
   legend_position = "top",
@@ -467,7 +467,7 @@ create_arbovirus_plot(
 create_arbovirus_plot(
   data = arboviruses_country,
   y_var = death_rate,
-  virus_filter_expr = virus == "Sum of Arboviruses",
+  virus_filter_expr = virus != "Sum of Arboviruses",
   y_lab = "Death Rate (per 100,000 pop.)",
   grouping_var = virus,
   legend_position = "top",
@@ -695,7 +695,10 @@ risk_analysis <- function(df, analysis_year = 2024) {
     select(calendar_year_week, epi_week, incidence_current = incidence, deaths_current = deaths)
   
   # Combine endemic channel and current year data
-  risk_final <- tibble(epi_week = 1:53) %>% # Ensure all epi_weeks are present
+  
+  max_week <- max(df$epi_week[df$epi_year == analysis_year], na.rm = TRUE) # Dynamically find the maximum epi_week for the specified analysis_year
+  
+  risk_final <- tibble(epi_week = 1:max_week) %>%  
     left_join(endemic_channel, by = "epi_week") %>%
     left_join(current_year_data, by = "epi_week") %>%
     # Replace NA values with 0 to allow for calculations
@@ -995,7 +998,8 @@ emergency_state_for_muni_plot <- emergency_state %>%
 create_risk_plot <- function(data, facet_var = NULL) {
   
   # Define axis breaks and find their corresponding calendar week labels
-  axis_breaks <- seq(min(data$epi_week), max(data$epi_week), by = 10)
+  axis_breaks <- seq(min(data$epi_week), max(data$epi_week), by = 13) %>% 
+    union(max(data$epi_week))
   axis_labels <- data$calendar_year_week[match(axis_breaks, data$epi_week)]
   
   # Base plot
