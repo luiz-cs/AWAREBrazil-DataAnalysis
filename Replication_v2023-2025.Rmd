@@ -601,7 +601,7 @@ dengue_capitals_map_data <- dengue_capitals_map_data %>%
 dengue_incidence_map_themed <- ggplot() +
   geom_sf(data = dengue_states_map_data, aes(fill = incidence_cat), color = "black", linewidth = 0.5) +
   geom_sf(data = dengue_capitals_map_data, aes(shape = incidence_cat), 
-         fill = NA, color = "darkgrey", alpha = 0.8, size = 4, stroke = 2) +
+         fill = NA, color = "darkgrey", alpha = 0.9, size = 4, stroke = 2) +
    scale_fill_brewer(
     palette = "Blues",
     name = "Cumulative Incidence (States)\n(per 100,000 pop.)",
@@ -637,7 +637,7 @@ ggsave(here("Graphs", paste0("Map Dengue Incidence 2024.png")), dengue_incidence
 dengue_deaths_rate_map_themed <- ggplot() +
   geom_sf(data = dengue_states_map_data, aes(fill = death_rate_cat), color = "black", linewidth = 0.5) +
   geom_sf(data = dengue_capitals_map_data, aes(shape = death_rate_cat), 
-           fill = NA, color = "darkgrey", alpha = 0.8, size = 4, stroke = 2) +
+           fill = NA, color = "darkgrey", alpha = 0.9, size = 4, stroke = 2) +
   scale_fill_brewer(
     palette = "Purples",
     name = "Cumulative Death Rate (States)\n(per 100,000 pop.)",
@@ -747,7 +747,8 @@ risk_analysis <- function(df, analysis_year = 2024) {
         fill = 0, align = "right"),
         
     # Assign a risk level based on a nested, hierarchical logic
-    riskassessment = case_when(
+      riskassessment = case_when(
+      epi_week <= 4 ~ -1L,
       
       # EMERGENCY - Condition 5 AND/OR Condition 6
       (exponential_incidence == 1 & increased_deaths_5w == 1) |
@@ -766,7 +767,7 @@ risk_analysis <- function(df, analysis_year = 2024) {
         # Default: Normality
         TRUE ~ 0L
       )
-    )
+    ) 
   
     return(list(risk_final = risk_final))
 }
@@ -938,7 +939,7 @@ emergency_state <- tibble::tribble(
     "GO", "02/02/2024",
     "ES", "21/02/2024",
     "RJ", "21/02/2024",
-    "SC", "22/02/2024", # Same day as Florianopolis
+    "SC", "22/02/2024", 
     "MG", "26/02/2024",
     "AP", "28/02/2024",
     "SP", "05/03/2024",
@@ -959,7 +960,7 @@ emergency_muni <- tibble::tribble(
     420540, "29/11/2023",  # Florianópolis
     330455, "02/02/2024",  # Rio de Janeiro
     310620, "16/02/2024",  # Belo Horizonte
-    420540, "22/02/2024",  # Florianópolis 
+  #  420540, "22/02/2024",  # Florianópolis 
     240810, "01/03/2024",  # Natal
     520870, "13/03/2024",  # Goiânia
     355030, "18/03/2024",  # São Paulo
@@ -1002,8 +1003,16 @@ create_risk_plot <- function(data, facet_var = NULL) {
     union(max(data$epi_week))
   axis_labels <- data$calendar_year_week[match(axis_breaks, data$epi_week)]
   
+  # Order risk assessment as factor
+  all_levels <- c("-1", "0", "1", "2", "3")
+  
+  plot_data <- data %>%
+    mutate(riskassessment = factor(riskassessment, levels = all_levels))
+  
+  dummy_data <- tibble(riskassessment = factor(all_levels, levels = all_levels))
+  
   # Base plot
-  p <- data %>%
+  p <- plot_data %>%
     ggplot(aes(x = epi_week)) +
     # Incidence bars colored by risk level
     geom_col(aes(y = incidence_current, fill = riskassessment), width = 1, alpha = 0.8) +
@@ -1011,37 +1020,50 @@ create_risk_plot <- function(data, facet_var = NULL) {
     geom_ribbon(aes(ymin = low, ymax = high, fill = "Endemic Channel", group = 1), alpha = 0.8) +
     # Median incidence line
     geom_line(aes(y = median_incidence, color = "Historical Median", linetype = "Historical Median", group = 1), linewidth = 0.8) +
+    # Add an invisible layer that uses the dummy data to make sure all factors are present
+    geom_tile(data = dummy_data, mapping = aes(x = -Inf, y = -Inf, fill = riskassessment), alpha = 0) +
     # Scale x-axis
     scale_x_continuous(breaks = axis_breaks, labels = axis_labels) +
     # Define custom colors and labels for the fill aesthetic (Risk Levels)
     scale_fill_manual(
        name = "Risk Level & Baseline",
   values = c(
-    "Endemic Channel" = "grey",
+    "Endemic Channel" = "darkgrey",
+    "-1" = "lightgrey",
     "0" = "green",
     "1" = "yellow",
     "2" = "orange",
-    "3" = "red"
-  ),
+    "3" = "red"),
   labels = c(
     "Endemic Channel" = "Endemic Channel",
+    "-1" = "Learning",
     "0" = "Level 0 - Normality",
     "1" = "Level 1 - Mobilization",
     "2" = "Level 2 - Alert",
     "3" = "Level 3 - Emergency"), 
   drop = FALSE,
-  limits = c("Endemic Channel", "0", "1", "2", "3")) +
+  na.translate = T,
+  limits = c("Endemic Channel", "-1", "0", "1", "2", "3")) +
   # Define manual color for historical Median line
   scale_color_manual(
   values = c("Historical Median" = "blue")) +
   # Define manual linetype for historical Median line
   scale_linetype_manual(
   values = c("Historical Median" = "dashed")) +
-  # Combine fill and line legends
   guides(
-    fill = guide_legend(title = NULL, order = 1),
-    color = guide_legend(title = NULL, order = 2, override.aes = list(linetype = "dashed", color = "blue")),
-    linetype = "none") +
+      fill = guide_legend(
+        title = NULL,
+        order = 1,
+        nrow = 1, 
+        override.aes = list(alpha = 1) # 
+      ),
+      color = guide_legend(
+        title = NULL,
+        order = 2,
+        override.aes = list(linetype = "dashed", color = "blue")
+      ),
+      linetype = "none"
+    ) +
 theme_classic(base_size = 14) +
     theme(
       plot.title = element_text(face = "bold", size = rel(1.2)),
@@ -1165,9 +1187,9 @@ dengue_map_alert_capitals <- capitals_points %>%
  left_join(dengue_alert_week_muni_filtered, by = c("code_muni" = "ibge"))
 
 # Breaks
-dengue_week_breaks <- c(1, 5, 13, Inf)
+dengue_week_breaks <- c(5, 9, 12, Inf)
 
-dengue_week_labels <- c("Week 1-4", "Week 5-12", "Week 13+")
+dengue_week_labels <- c("Week 5-8", "Week 9-12", "Week 12+")
 
 dengue_map_alert_states <- dengue_map_alert_states %>%
  mutate(first_week_alert_2024 = as.numeric(first_week_alert_2024)) %>%
@@ -1190,9 +1212,9 @@ dengue_map_alert_capitals <- dengue_map_alert_capitals %>%
 dengue_risk_map_themed <- ggplot() +
  geom_sf(data = dengue_map_alert_states, aes(fill = alert_week_group), color = "black", linewidth = 0.5) +
  geom_sf(data = dengue_map_alert_capitals, aes(shape = alert_week_group),
- fill = NA, color = "darkgrey", alpha = 0.8, size = 4, stroke = 2) +
+ fill = NA, color = "darkgrey", alpha = 0.9, size = 4, stroke = 2) +
 scale_fill_brewer(
-    palette = "Greys",
+    palette = "YlOrRd",
     direction = -1,
     name = "First Week 'Alert' (States)",
  drop = F
@@ -1234,6 +1256,13 @@ emergency_week_state <- emergency_state %>%
 emergency_week_muni <- emergency_muni %>%
   select(ibge, declaration_week = epi_week)
 
+# Define factor levels
+lag_levels <- c(
+  "0-4 Weeks After Alert",
+  "4+ Weeks After Alert",
+  "No Declaration"
+)
+
 # States
 lag_map_data_states <- states_sf %>%
   # Join alert data
@@ -1246,19 +1275,13 @@ lag_map_data_states <- states_sf %>%
     
     # Create the categories based on the lag
     lag_category = case_when(
-      is.na(first_week_alert_2024) ~ "No Alert Triggered",
       is.na(declaration_week) ~ "No Declaration",
-      lag_weeks <= 0 ~ "Declared On or Before Alert",
-      lag_weeks > 0 & lag_weeks <= 4 ~ "1-4 Weeks After Alert",
-      lag_weeks > 4 ~ "5+ Weeks After Alert"
+      lag_weeks >= 0 & lag_weeks <= 4 ~ "0-4 Weeks After Alert",
+      lag_weeks > 4 ~ "4+ Weeks After Alert"
     ),
     
     # Convert to a factor to control the order in the plot legend
-    lag_category = factor(lag_category, levels = c(
-      "Declared On or Before Alert", "1-4 Weeks After Alert", 
-      "5+ Weeks After Alert", "No Declaration", "No Alert Triggered"
-    ))
-  )
+        lag_category = factor(lag_category, levels = lag_levels))
 
 # Munis
 lag_map_data_capitals <- capitals_points %>%
@@ -1274,35 +1297,29 @@ lag_map_data_capitals <- capitals_points %>%
     
     # Create the categories based on the lag
     lag_category = case_when(
-      is.na(first_week_alert_2024) ~ "No Alert Triggered",
       is.na(declaration_week) ~ "No Declaration",
-      lag_weeks <= 0 ~ "Declared On or Before Alert",
-      lag_weeks > 0 & lag_weeks <= 4 ~ "1-4 Weeks After Alert",
-      lag_weeks > 4 ~ "5+ Weeks After Alert"
+      lag_weeks >= 0 & lag_weeks <= 4 ~ "0-4 Weeks After Alert",
+      lag_weeks > 4 ~ "4+ Weeks After Alert"
     ),
     
     # Convert to a factor to control the order in the plot legend
-    lag_category = factor(lag_category, levels = c(
-      "Declared On or Before Alert", "1-4 Weeks After Alert", 
-      "5+ Weeks After Alert", "No Declaration", "No Alert Triggered"
-    ))
-  )
+       lag_category = factor(lag_category, levels = lag_levels))
 
 # Generate the Map
 lag_map <- ggplot() +
   geom_sf(data = lag_map_data_states, aes(fill = lag_category), color = "black", linewidth = 0.5) +
   geom_sf(data = lag_map_data_capitals, aes(shape = lag_category),
-          fill = NA, color = "darkgrey", alpha = 0.8, size = 4, stroke = 2) +
+          fill = NA, color = "darkgrey", alpha = 0.9, size = 4, stroke = 2) +
   scale_fill_brewer(
-    palette = "YlOrRd",
+    palette = "PuBuGn",
     name = "State Response Lag",
-    drop = T, 
+    drop = F, 
     na.translate = F
   ) +
   scale_shape_manual(
     name = "Capital Response Lag",
-            values = c(21, 25),
-    drop = T, 
+            values = c(21, 22, 25),
+    drop = F, 
     na.translate = F
   ) +
    guides(
