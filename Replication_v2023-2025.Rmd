@@ -604,12 +604,12 @@ dengue_incidence_map_themed <- ggplot() +
          fill = NA, color = "darkgrey", alpha = 0.9, size = 4, stroke = 2) +
    scale_fill_brewer(
     palette = "Blues",
-    name = "Cumulative Incidence (States)\n(per 100,000 pop.)",
+    name = "Cumulative Incidence (S)\n(per 100,000 pop.)",
     na.translate = FALSE,
     drop = TRUE 
   ) +
   scale_shape_manual(
-    name = "Cumulative Incidence (Capitals)\n(per 100,000 pop.)",
+    name = "Cumulative Incidence (C)\n(per 100,000 pop.)",
         values = c(21, 22, 23),
     drop = FALSE
   ) +
@@ -640,12 +640,12 @@ dengue_deaths_rate_map_themed <- ggplot() +
            fill = NA, color = "darkgrey", alpha = 0.9, size = 4, stroke = 2) +
   scale_fill_brewer(
     palette = "Purples",
-    name = "Cumulative Death Rate (States)\n(per 100,000 pop.)",
+    name = "Cumulative Death Rate (S)\n(per 100,000 pop.)",
     na.translate = FALSE,
     drop = FALSE
   ) +
   scale_shape_manual(
-    name = "Cumulative Death Rate (Capitals)\n(per 100,000 pop.)",
+    name = "Cumulative Death Rate (C)\n(per 100,000 pop.)",
             values = c(21, 22, 23),
     drop = FALSE
   ) +
@@ -750,7 +750,7 @@ risk_analysis <- function(df, analysis_year = 2024) {
       riskassessment = case_when(
       epi_week <= 4 ~ -1L,
       
-      # EMERGENCY - Condition 5 AND/OR Condition 6
+      # EPIDEMIC - Condition 5 AND/OR Condition 6
       (exponential_incidence == 1 & increased_deaths_5w == 1) |
       (exponential_incidence == 1 | increased_deaths_5w == 1) ~ 3L,
       
@@ -1040,7 +1040,7 @@ create_risk_plot <- function(data, facet_var = NULL) {
     "0" = "Level 0 - Normality",
     "1" = "Level 1 - Mobilization",
     "2" = "Level 2 - Alert",
-    "3" = "Level 3 - Emergency"), 
+    "3" = "Level 3 - Epidemic"), 
   drop = FALSE,
   na.translate = T,
   limits = c("Endemic Channel", "-1", "0", "1", "2", "3")) +
@@ -1216,11 +1216,11 @@ dengue_risk_map_themed <- ggplot() +
 scale_fill_brewer(
     palette = "YlOrRd",
     direction = -1,
-    name = "First Week 'Alert' (States)",
+    name = "First Week 'Alert' (S)",
  drop = F
  ) +
  scale_shape_manual(
- name = "First Week 'Alert' (Capitals)",
+ name = "First Week 'Alert' (C)",
          values = c(21, 22, 23),
   na.translate = FALSE,
  drop = F
@@ -1312,12 +1312,12 @@ lag_map <- ggplot() +
           fill = NA, color = "darkgrey", alpha = 0.9, size = 4, stroke = 2) +
   scale_fill_brewer(
     palette = "PuBuGn",
-    name = "State Response Lag",
+    name = "Response Lag (S)",
     drop = F, 
     na.translate = F
   ) +
   scale_shape_manual(
-    name = "Capital Response Lag",
+    name = "Response Lag (C)",
             values = c(21, 22, 25),
     drop = F, 
     na.translate = F
@@ -1341,15 +1341,3 @@ lag_map <- ggplot() +
 print(lag_map)
 ggsave(here("Graphs", "Map_Lag_Alert_Declaration_2024.png"), lag_map, width = 12, height = 10, dpi = 300)
 ```
-
-## Combined map visualization
-
-```{r create-map-panel, fig.width=14, fig.height=12}
-map_panel <- (dengue_incidence_map_themed | dengue_deaths_rate_map_themed) / (dengue_risk_map_themed | lag_map) 
-
-print(map_panel)
-
-ggsave(here("Graphs", "Map_Panel.png"), map_panel, width = 18, height = 14,dpi = 300)
-```
-  
-
