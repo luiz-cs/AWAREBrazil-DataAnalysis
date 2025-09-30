@@ -600,22 +600,21 @@ dengue_capitals_map_data <- dengue_capitals_map_data %>%
 
 dengue_incidence_map_themed <- ggplot() +
   geom_sf(data = dengue_states_map_data, aes(fill = incidence_cat), color = "black", linewidth = 0.5) +
-  geom_sf(data = dengue_capitals_map_data, aes(shape = incidence_cat), 
-         fill = NA, color = "darkgrey", alpha = 0.9, size = 4, stroke = 2) +
+  geom_sf(data = dengue_capitals_map_data, aes(size = incidence_cat), shape = 21, fill = NA, color = "darkgrey", alpha = 1, stroke = 2) +
    scale_fill_brewer(
     palette = "Blues",
     name = "Cumulative Incidence (S)\n(per 100,000 pop.)",
     na.translate = FALSE,
     drop = TRUE 
   ) +
-  scale_shape_manual(
+  scale_size_manual(
     name = "Cumulative Incidence (C)\n(per 100,000 pop.)",
-        values = c(21, 22, 23),
+    values = c(3, 6, 9),
     drop = FALSE
   ) +
    guides(
     fill = guide_legend(order = 1),
-    shape = guide_legend(order = 2)
+    size = guide_legend(order = 2)
   ) +
   theme_bw() +
   theme(
@@ -636,22 +635,22 @@ ggsave(here("Graphs", paste0("Map Dengue Incidence 2024.png")), dengue_incidence
 
 dengue_deaths_rate_map_themed <- ggplot() +
   geom_sf(data = dengue_states_map_data, aes(fill = death_rate_cat), color = "black", linewidth = 0.5) +
-  geom_sf(data = dengue_capitals_map_data, aes(shape = death_rate_cat), 
-           fill = NA, color = "darkgrey", alpha = 0.9, size = 4, stroke = 2) +
+  geom_sf(data = dengue_capitals_map_data, aes(size = death_rate_cat), 
+           shape = 21, fill = NA, color = "darkgrey", alpha = 1,stroke = 2) +
   scale_fill_brewer(
     palette = "Purples",
     name = "Cumulative Death Rate (S)\n(per 100,000 pop.)",
     na.translate = FALSE,
     drop = FALSE
   ) +
-  scale_shape_manual(
+  scale_size_manual(
     name = "Cumulative Death Rate (C)\n(per 100,000 pop.)",
-            values = c(21, 22, 23),
+    values = c(3, 6, 9),
     drop = FALSE
   ) +
    guides(
     fill = guide_legend(order = 1),
-    shape = guide_legend(order = 2)
+    size = guide_legend(order = 2)
   ) +
   theme_bw() +
   theme(
@@ -1212,10 +1211,9 @@ dengue_map_alert_capitals <- dengue_map_alert_capitals %>%
 dengue_risk_map_themed <- ggplot() +
  geom_sf(data = dengue_map_alert_states, aes(fill = alert_week_group), color = "black", linewidth = 0.5) +
  geom_sf(data = dengue_map_alert_capitals, aes(shape = alert_week_group),
- fill = NA, color = "darkgrey", alpha = 0.9, size = 4, stroke = 2) +
+ fill = NA, color = "darkgrey", alpha = 1, size = 4, stroke = 2) +
 scale_fill_brewer(
-    palette = "YlOrRd",
-    direction = -1,
+    palette = "PuBuGn",
     name = "First Week 'Alert' (S)",
  drop = F
  ) +
@@ -1258,8 +1256,8 @@ emergency_week_muni <- emergency_muni %>%
 
 # Define factor levels
 lag_levels <- c(
-  "0-4 Weeks After Alert",
-  "4+ Weeks After Alert",
+  "Opportunistic",
+  "Delayed",
   "No Declaration"
 )
 
@@ -1276,8 +1274,8 @@ lag_map_data_states <- states_sf %>%
     # Create the categories based on the lag
     lag_category = case_when(
       is.na(declaration_week) ~ "No Declaration",
-      lag_weeks >= 0 & lag_weeks <= 4 ~ "0-4 Weeks After Alert",
-      lag_weeks > 4 ~ "4+ Weeks After Alert"
+      lag_weeks == 0 ~ "Opportunistic",
+      lag_weeks >=1 ~ "Delayed"
     ),
     
     # Convert to a factor to control the order in the plot legend
@@ -1298,8 +1296,8 @@ lag_map_data_capitals <- capitals_points %>%
     # Create the categories based on the lag
     lag_category = case_when(
       is.na(declaration_week) ~ "No Declaration",
-      lag_weeks >= 0 & lag_weeks <= 4 ~ "0-4 Weeks After Alert",
-      lag_weeks > 4 ~ "4+ Weeks After Alert"
+      lag_weeks == 0 ~ "Opportunistic",
+      lag_weeks >=1 ~ "Delayed"
     ),
     
     # Convert to a factor to control the order in the plot legend
@@ -1309,17 +1307,17 @@ lag_map_data_capitals <- capitals_points %>%
 lag_map <- ggplot() +
   geom_sf(data = lag_map_data_states, aes(fill = lag_category), color = "black", linewidth = 0.5) +
   geom_sf(data = lag_map_data_capitals, aes(shape = lag_category),
-          fill = NA, color = "darkgrey", alpha = 0.9, size = 4, stroke = 2) +
+          fill = NA, color = "darkgrey", alpha = 1, size = 4, stroke = 2) +
   scale_fill_brewer(
-    palette = "PuBuGn",
-    name = "Response Lag (S)",
-    drop = F, 
+    palette = "RdBu",
+    name = "Timeliness of Emergency Declaration (S)",
+    drop = T, 
     na.translate = F
   ) +
   scale_shape_manual(
-    name = "Response Lag (C)",
-            values = c(21, 22, 25),
-    drop = F, 
+    name = "Timeliness of Emergency Declaration (C)",
+            values = c(6, 7, 8),
+    drop = T, 
     na.translate = F
   ) +
    guides(
