@@ -344,6 +344,7 @@ create_arbovirus_plot <- function(data, y_var, virus_filter_expr, y_lab,
     dpi = 300,
     create.dir = TRUE
   )
+  return(p)
 }
 ```
 
@@ -355,15 +356,35 @@ create_arbovirus_plot <- function(data, y_var, virus_filter_expr, y_lab,
 
 #### Dengue
 ```{r incidence-country-dengue, fig.width=15, fig.height=15}
-create_arbovirus_plot(
+p <- create_arbovirus_plot(
   data = arboviruses_country,
   y_var = incidence,
   virus_filter_expr = virus == "Dengue",
   y_lab = "Incidence Rate (per 100,000 pop.)",
   grouping_var = virus,
-  legend_position = "top",
+  legend_position = "none",
   file_name = "Incidence of Dengue in Brazil.png"
 )
+
+  # Change the sizes
+
+p_mod <- p + theme(
+  text = element_text(size = 18),
+  axis.title = element_text(size = 20),
+  axis.text = element_text(size = 16)
+)
+
+  # Print and save again
+  print(p_mod)
+  ggsave(
+    here("Graphs", "Incidence of Dengue in Brazil.png"),
+    p_mod,
+    height = 15,
+    width = 15,
+    dpi = 300,
+    create.dir = TRUE
+  )
+
 ```
 
 #### Dengue, Chikungunya, and Zika
@@ -451,15 +472,37 @@ create_arbovirus_plot(
 
 #### Dengue
 ```{r deaths-country-dengue, fig.width=15, fig.height=15}
-create_arbovirus_plot(
+p <- create_arbovirus_plot(
   data = arboviruses_country,
   y_var = death_rate,
   virus_filter_expr = virus == "Dengue",
   y_lab = "Death Rate (per 100,000 pop.)",
   grouping_var = virus,
-  legend_position = "top",
+  legend_position = "none",
   file_name = "Deaths of Dengue in Brazil.png"
 )
+
+
+
+  # Change the sizes
+
+p_mod <- p + theme(
+  text = element_text(size = 18),
+  axis.title = element_text(size = 20),
+  axis.text = element_text(size = 16)
+)
+
+  # Print and save again
+  print(p_mod)
+  ggsave(
+    here("Graphs", "Deaths of Dengue in Brazil.png"),
+    p_mod,
+    height = 15,
+    width = 15,
+    dpi = 300,
+    create.dir = TRUE
+  )
+
 ```
 
 #### Dengue, Chikungunya, and Zika
