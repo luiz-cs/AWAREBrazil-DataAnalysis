@@ -121,8 +121,8 @@ country_population <- arboviruses_base %>%
 
 # 3. Create datasets for each geographic level
 
-# Munis 
-arboviruses_muni <- arboviruses_base %>%
+# Munis (Individual Viruses)
+arboviruses_muni_ind <- arboviruses_base %>%
   filter(ibge %in% unlist(codibge)) %>%
   group_by(ibge, municipality, uf, calendar_year_week, epi_year, epi_week, epi_year_week, virus) %>%
   summarise(
@@ -144,13 +144,8 @@ arboviruses_muni <- arboviruses_base %>%
   ) %>%
   ungroup()
 
-arboviruses_muni <- arboviruses_muni %>%
-  mutate(muni_name = stringr::str_remove(municipality, "^\\d+\\s"))  %>%
-  arrange(epi_year, epi_week) %>%
-  mutate(epi_year_week = factor(epi_year_week, levels = unique(epi_year_week), ordered = TRUE))
-
-# States 
-arboviruses_state <- arboviruses_base %>%
+# States (Individual Viruses)
+arboviruses_state_ind <- arboviruses_base %>%
   group_by(uf, calendar_year_week, epi_year, epi_week, epi_year_week, virus) %>%
   summarise(
     cases = sum(likely_cases),
@@ -171,12 +166,8 @@ arboviruses_state <- arboviruses_base %>%
   ) %>%
   ungroup()
 
-arboviruses_state <- arboviruses_state %>%
-  arrange(epi_year, epi_week) %>%
-  mutate(epi_year_week = factor(epi_year_week, levels = unique(epi_year_week), ordered = TRUE))
-
-# Country 
-arboviruses_country <- arboviruses_base %>%
+# Country (Individual Viruses)
+arboviruses_country_ind <- arboviruses_base %>%
   group_by(calendar_year_week, epi_year, epi_week, epi_year_week, virus) %>%
   summarise(
     cases = sum(likely_cases),
@@ -198,7 +189,87 @@ arboviruses_country <- arboviruses_base %>%
   ) %>%
   ungroup()
 
-arboviruses_country <- arboviruses_country %>%
+# 4. Create data for the sum of arboviruses
+
+# Muni (Sum of Viruses)
+all_virus_muni <- arboviruses_muni_ind %>%
+  group_by(ibge, municipality, uf, calendar_year_week, epi_year, epi_week, epi_year_week) %>%
+  summarise(
+    cases = sum(cases),
+    deaths = sum(deaths),
+    population = first(population),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    incidence = (cases / population) * 100000,
+    death_rate = (deaths / population) * 100000,
+    virus = "Sum of Arboviruses"
+  ) %>%
+  # Calculate cumulative per epi year
+  group_by(ibge, municipality, uf, virus, epi_year) %>%
+  arrange(epi_week, .by_group = TRUE) %>%
+  mutate(
+    cumulative_incidence = cumsum(incidence),
+    cumulative_death_rate = cumsum(death_rate)
+  ) %>%
+  ungroup()
+
+# States (Sum of Viruses)
+all_virus_state <- arboviruses_state_ind %>%
+  group_by(uf, calendar_year_week, epi_year, epi_week, epi_year_week) %>%
+  summarise(
+    cases = sum(cases),
+    deaths = sum(deaths),
+    .groups = "drop"
+  ) %>%
+  left_join(state_population, by = c("uf", "epi_year")) %>%
+  mutate(
+    incidence = (cases / state_pop) * 100000,
+    death_rate = (deaths / state_pop) * 100000,
+    virus = "Sum of Arboviruses"
+  ) %>%
+  # Calculate cumulative per epi year
+  group_by(uf, virus, epi_year) %>%
+  arrange(epi_week, .by_group = TRUE) %>%
+  mutate(
+    cumulative_incidence = cumsum(incidence),
+    cumulative_death_rate = cumsum(death_rate)
+  ) %>%
+  ungroup()
+
+# Country (Sum of Viruses)
+all_virus_country <- arboviruses_country_ind %>%
+  group_by(calendar_year_week, epi_year, epi_week, epi_year_week) %>%
+  summarise(
+    cases = sum(cases),
+    deaths = sum(deaths),
+    .groups = "drop"
+  ) %>%
+  left_join(country_population, by = "epi_year") %>%
+  mutate(
+    incidence = (cases / country_pop) * 100000,
+    death_rate = (deaths / country_pop) * 100000,
+    country = "Brazil",
+    virus = "Sum of Arboviruses"
+  ) %>%
+  # Calculate cumulative per epi year
+  group_by(country, virus, epi_year) %>%
+  arrange(epi_week, .by_group = TRUE) %>%
+  mutate(
+    cumulative_incidence = cumsum(incidence),
+    cumulative_death_rate = cumsum(death_rate)
+  ) %>%
+  ungroup()
+
+# 5. Bind the datasets
+arboviruses_muni <- bind_rows(arboviruses_muni_ind, all_virus_muni) %>%
+  mutate(muni_name = stringr::str_remove(municipality, "^\\d+\\s"))  %>%
+  arrange(epi_year, epi_week) %>%
+  mutate(epi_year_week = factor(epi_year_week, levels = unique(epi_year_week), ordered = TRUE))
+arboviruses_state <- bind_rows(arboviruses_state_ind, all_virus_state)  %>%
+  arrange(epi_year, epi_week) %>%
+  mutate(epi_year_week = factor(epi_year_week, levels = unique(epi_year_week), ordered = TRUE))
+arboviruses_country <- bind_rows(arboviruses_country_ind, all_virus_country)  %>%
   arrange(epi_year, epi_week) %>%
   mutate(epi_year_week = factor(epi_year_week, levels = unique(epi_year_week), ordered = TRUE))
 ```
@@ -250,12 +321,13 @@ create_arbovirus_plot <- function(data, y_var, virus_filter_expr, y_lab,
     scale_x_discrete(breaks = axis_breaks, labels = axis_labels) +
     theme_classic(base_size = 14) + 
     theme(
-      text = element_text(size = 20),
-      axis.title = element_text(face = "bold", size = 20),
-      axis.text = element_text(size = 20),
+      axis.title = element_text(face = "bold", size = rel(1)), 
       legend.position = legend_position,
+      legend.title = element_text(face = "bold", size = rel(1)),
+      legend.text = element_text(size = rel(1)),
       panel.grid.major.y = element_line(color = "grey85", linewidth = 0.5),
-      axis.text.x = element_text(angle = 45, hjust = 1))
+      axis.text.x = element_text(angle = 45, hjust = 1)
+    )
 
   # Add faceting if specified
   if (!is.null(facet_by)) {
@@ -269,7 +341,7 @@ create_arbovirus_plot <- function(data, y_var, virus_filter_expr, y_lab,
     p,
     height = 15,
     width = 15,
-    dpi = 600,
+    dpi = 300,
     create.dir = TRUE
   )
 }
@@ -281,7 +353,7 @@ create_arbovirus_plot <- function(data, y_var, virus_filter_expr, y_lab,
 
 ### Country-wide Incidence
 
-
+#### Dengue
 ```{r incidence-country-dengue, fig.width=15, fig.height=15}
 create_arbovirus_plot(
   data = arboviruses_country,
@@ -289,14 +361,27 @@ create_arbovirus_plot(
   virus_filter_expr = virus == "Dengue",
   y_lab = "Incidence Rate (per 100,000 pop.)",
   grouping_var = virus,
-  legend_position = "none",
+  legend_position = "top",
   file_name = "Incidence of Dengue in Brazil.png"
+)
+```
+
+#### Dengue, Chikungunya, and Zika
+```{r incidence-country-all, fig.width=15, fig.height=15}
+create_arbovirus_plot(
+  data = arboviruses_country,
+  y_var = incidence,
+  virus_filter_expr = virus != "Sum of Arboviruses",
+  y_lab = "Incidence Rate (per 100,000 pop.)",
+  grouping_var = virus,
+  legend_position = "top",
+  file_name = "Incidence of All Arboviruses in Brazil.png"
 )
 ```
 
 ### State-level Incidence
 
-
+#### Dengue
 ```{r incidence-state-dengue, fig.width=15, fig.height=15}
 create_arbovirus_plot(
   data = arboviruses_state,
@@ -304,16 +389,31 @@ create_arbovirus_plot(
   virus_filter_expr = virus == "Dengue",
   y_lab = "Incidence Rate (per 100,000 pop.)",
   grouping_var = virus,
-  legend_position = "none",
+  legend_position = "top",
   facet_by = "uf",
   year_interval = 2,
   file_name = "Incidence of Dengue per State.png"
 )
 ```
 
+#### Dengue, Chikungunya, and Zika
+```{r incidence-state-all, fig.width=15, fig.height=15}
+create_arbovirus_plot(
+  data = arboviruses_state,
+  y_var = incidence,
+  virus_filter_expr = virus == "Sum of Arboviruses",
+  y_lab = "Incidence Rate (per 100,000 pop.)",
+  grouping_var = virus,
+  legend_position = "top",
+  facet_by = "uf",
+  year_interval = 2,
+  file_name = "Incidence of All Arboviruses per State.png"
+)
+```
+
 ### Selected Municipalities Incidence
 
-
+#### Dengue
 ```{r incidence-muni-dengue, fig.width=15, fig.height=15}
 create_arbovirus_plot(
   data = arboviruses_muni,
@@ -321,18 +421,35 @@ create_arbovirus_plot(
   virus_filter_expr = virus == "Dengue",
   y_lab = "Incidence Rate (per 100,000 pop.)",
   grouping_var = virus,
-  legend_position = "none",
+  legend_position = "top",
   facet_by = "muni_name",
   year_interval = 2,
   file_name = "Incidence of Dengue per Selected Municipalities.png"
 )
 ```
 
+#### Dengue, Chikungunya, and Zika
+```{r incidence-muni-all, fig.width=15, fig.height=15}
+create_arbovirus_plot(
+  data = arboviruses_muni,
+  y_var = incidence,
+  virus_filter_expr = virus == "Sum of Arboviruses",
+  y_lab = "Incidence Rate (per 100,000 pop.)",
+  grouping_var = virus,
+  legend_position = "top",
+  facet_by = "muni_name",
+  year_interval = 2,
+  file_name = "Incidence of All Arboviruses per Selected Municipalities.png"
+)
+```
+
+---
+
 ## Mortality
 
 ### Country-wide Deaths
 
-
+#### Dengue
 ```{r deaths-country-dengue, fig.width=15, fig.height=15}
 create_arbovirus_plot(
   data = arboviruses_country,
@@ -340,14 +457,27 @@ create_arbovirus_plot(
   virus_filter_expr = virus == "Dengue",
   y_lab = "Death Rate (per 100,000 pop.)",
   grouping_var = virus,
-  legend_position = "none",
+  legend_position = "top",
   file_name = "Deaths of Dengue in Brazil.png"
+)
+```
+
+#### Dengue, Chikungunya, and Zika
+```{r deaths-country-all, fig.width=15, fig.height=15}
+create_arbovirus_plot(
+  data = arboviruses_country,
+  y_var = death_rate,
+  virus_filter_expr = virus != "Sum of Arboviruses",
+  y_lab = "Death Rate (per 100,000 pop.)",
+  grouping_var = virus,
+  legend_position = "top",
+  file_name = "Deaths of All Arboviruses in Brazil.png"
 )
 ```
 
 ### State-level Deaths
 
-
+#### Dengue
 ```{r deaths-state-dengue, fig.width=15, fig.height=15}
 create_arbovirus_plot(
   data = arboviruses_state,
@@ -355,16 +485,31 @@ create_arbovirus_plot(
   virus_filter_expr = virus == "Dengue",
   y_lab = "Cumulative Death Rate (per 100,000 pop.) per Epidemiological Year",
   grouping_var = virus,
-  legend_position = "none",
+  legend_position = "top",
   facet_by = "uf",
   year_interval = 2,
   file_name = "Deaths of Dengue per State.png"
 )
 ```
 
+#### Dengue, Chikungunya, and Zika
+```{r deaths-state-all, fig.width=15, fig.height=15}
+create_arbovirus_plot(
+  data = arboviruses_state,
+  y_var = cumulative_death_rate,
+  virus_filter_expr = virus == "Sum of Arboviruses",
+  y_lab = "Cumulative Death Rate (per 100,000 pop.) per Epidemiological Year",
+  grouping_var = virus,
+  legend_position = "top",
+  facet_by = "uf",
+  year_interval = 2,
+  file_name = "Deaths of All Arboviruses per State.png"
+)
+```
+
 ### Selected Municipalities Deaths
 
-
+#### Dengue
 ```{r deaths-muni-dengue, fig.width=15, fig.height=15}
 create_arbovirus_plot(
   data = arboviruses_muni,
@@ -372,10 +517,25 @@ create_arbovirus_plot(
  virus_filter_expr = virus == "Dengue",
   y_lab = "Cumulative Death Rate (per 100,000 pop.) per Epidemiological Year",
   grouping_var = virus,
-  legend_position = "none",
+  legend_position = "top",
   facet_by = "muni_name",
   year_interval = 2,
   file_name = "Deaths of Dengue per Selected Municipalities.png"
+)
+```
+
+#### Dengue, Chikungunya, and Zika
+```{r deaths-muni-all, fig.width=15, fig.height=10}
+create_arbovirus_plot(
+  data = arboviruses_muni,
+  y_var = cumulative_death_rate,
+  virus_filter_expr = virus == "Sum of Arboviruses",
+  y_lab = "Cumulative Death Rate (per 100,000 pop.) per Epidemiological Year",
+  grouping_var = virus,
+  legend_position = "top",
+  facet_by = "muni_name",
+  year_interval = 2,
+  file_name = "Deaths of All Arboviruses per Selected Municipalities.png"
 )
 ```
 
@@ -383,14 +543,18 @@ create_arbovirus_plot(
 
 ## Mapping Incidence and Mortality in 2024
 
-```{r mapping-dengue, fig.width=16, fig.height=12}
+```{r spatial}
 # Get Geospatial Data
 #---------------------------------
 states_sf <- read_state(year = 2020)
 capitals_points <- read_municipality(year = 2020) %>%
   st_centroid() %>%
   mutate(code_muni = as.double(substr(as.character(code_muni), 1, 6)))
+```
 
+### Dengue
+
+```{r mapping-dengue, fig.width=12, fig.height=10}
 # Define the Epidemiological Year of Interest
 epi_year_to_plot <- 2024
 
@@ -438,7 +602,7 @@ dengue_incidence_map_themed <- ggplot() +
   geom_sf(data = dengue_states_map_data, aes(fill = incidence_cat), color = "black", linewidth = 0.5) +
   geom_sf(data = dengue_capitals_map_data, aes(size = incidence_cat), shape = 21, fill = NA, color = "darkgrey", alpha = 1, stroke = 2) +
    scale_fill_brewer(
-    palette = "Greens",
+    palette = "Blues",
     name = "Cumulative Incidence (S)\n(per 100,000 pop.)",
     na.translate = FALSE,
     drop = TRUE 
@@ -461,12 +625,11 @@ dengue_incidence_map_themed <- ggplot() +
     panel.grid = element_blank(),
     panel.border = element_blank(),
     axis.title = element_text(),
-    axis.text = element_text(size=12),
-    legend.title = element_text(size = 16),
-    legend.text = element_text(size = 16))
+    axis.text = element_text()
+  )
 
 print(dengue_incidence_map_themed)
-ggsave(here("Graphs", paste0("Map Dengue Incidence 2024.png")), dengue_incidence_map_themed, width = 16, height = 12, dpi = 600)
+ggsave(here("Graphs", paste0("Map Dengue Incidence 2024.png")), dengue_incidence_map_themed, width = 12, height = 10, dpi = 300)
 
 ### MAP 2: CUMULATIVE DEATH RATE
 
@@ -498,12 +661,11 @@ dengue_deaths_rate_map_themed <- ggplot() +
     panel.grid = element_blank(),
     panel.border = element_blank(),
     axis.title = element_text(),
-    axis.text = element_text(size=12),
-    legend.title = element_text(size = 16),
-    legend.text = element_text(size = 16))
+    axis.text = element_text()
+  )
 
 print(dengue_deaths_rate_map_themed)
-ggsave(here("Graphs", paste0("Map Dengue Death 2024.png")), dengue_deaths_rate_map_themed, width = 16, height = 12, dpi = 600)
+ggsave(here("Graphs", paste0("Map Dengue Death 2024.png")), dengue_deaths_rate_map_themed, width = 12, height = 10, dpi = 300)
 ```
 
 # Risk Assessment
@@ -664,76 +826,79 @@ risk_2024_muni <- results_muni_filtered %>%
 
 ### Summary Table of Risk Assessment
 
-```{r table-risk-summary-unified}
-# --- Create a unified location column for each level ---
+```{r table-risk-summary}
+# --- Country Level Table ---
 
-# Country
-risk_country_prep <- risk_2024_country %>%
-  filter(virus == "Dengue") %>%
-  mutate(location = country, level = "Country") %>%
-  select(level, location, epi_week, calendar_year_week, riskassessment)
+# Calculate first alert week
+alert_week_country <- risk_2024_country %>%
+  filter(virus %in% c("Dengue", "Sum of Arboviruses")) %>%
+  group_by(location_name = country, virus) %>%
+  summarise(first_week_alert_2024 = min(epi_week[riskassessment >= 2], na.rm = TRUE), .groups = 'drop') %>%
+  mutate(first_week_alert_2024 = as.numeric(first_week_alert_2024)) %>%
+  mutate(first_week_alert_2024 = na_if(first_week_alert_2024, Inf))
 
-# State
-risk_state_prep <- risk_2024_state %>%
-  filter(virus == "Dengue") %>%
-  mutate(location = uf, level = "State") %>%
-  select(level, location, epi_week, calendar_year_week, riskassessment)
+# Display the table
+knitr::kable(alert_week_country,
+             caption = "Country Level: First Alert Week in 2024 (Level >= 2)",
+             col.names = c("Country", "Virus", "2024 First Alert Week"))
 
-# Municipality
-risk_muni_prep <- risk_2024_muni %>%
-  filter(virus == "Dengue") %>%
-  mutate(location = muni_name, level = "Municipality") %>%
-  select(level, location, epi_week, calendar_year_week, riskassessment)
 
-# --- Combine all levels into one dataframe ---
-all_levels_risk <- bind_rows(risk_country_prep, risk_state_prep, risk_muni_prep)
+# --- State Level Table ---
 
-# --- Calculate the required metrics ---
-summary_table <- all_levels_risk %>%
-  group_by(level, location) %>%
-  summarise(
-    # Find the first epidemiological week with an alert (risk level 2 or 3)
-    first_alert_epi_week = min(epi_week[riskassessment %in% c("2", "3")], na.rm = TRUE),
-    
-    # Count the number of weeks at alert level
-    weeks_in_alert = sum(riskassessment == "2", na.rm = TRUE),
-    
-    # Count the number of weeks at epidemic level
-    weeks_in_epidemic = sum(riskassessment == "3", na.rm = TRUE),
-    .groups = 'drop'
-  ) %>%
-  # Get the corresponding calendar week for the first alert
-  left_join(
-    all_levels_risk %>% select(location, epi_week, calendar_year_week) %>% distinct(),
-    by = c("location" = "location", "first_alert_epi_week" = "epi_week")
-  ) %>% 
-  mutate( # Code 'No Alert'
-    first_alert_week_cal = if_else(
-      is.infinite(first_alert_epi_week), 
-      "No Alert", 
-      calendar_year_week
-    )
-  ) %>%
-  # Select cols for table
-  select(
-    `Location` = location,
-    `First week Alert (calendar-year-week)` = first_alert_week_cal,
-    `N. Weeks Alert` = weeks_in_alert,
-    `N. Weeks Epidemic` = weeks_in_epidemic
-  ) %>%
-  distinct() # Unique rows per location
+# Calculate first alert week
+alert_week_state <- risk_2024_state %>%
+  filter(virus %in% c("Dengue", "Sum of Arboviruses")) %>%
+  group_by(location_name = uf, virus) %>%
+  summarise(first_week_alert_2024 = min(epi_week[riskassessment >= 2], na.rm = TRUE), .groups = 'drop') %>%
+  mutate(first_week_alert_2024 = as.numeric(first_week_alert_2024)) %>%
+  mutate(first_week_alert_2024 = na_if(first_week_alert_2024, Inf))
 
-# --- Display table ---
-knitr::kable(summary_table, caption = "Risk Assessment Summary for All Levels (Dengue, 2024)")
+# Display the table
+knitr::kable(alert_week_state,
+             caption = "State Level: First Alert Week in 2024 (Level >= 2)",
+             col.names = c("UF", "Virus", "2024 First Alert Week"))
 
-# --- Save to a Word document ---
-doc <- read_docx() %>%
-  body_add_par("Risk Assessment Summary for All Levels (Dengue, 2024)", style = "heading 1") %>%
-  body_add_flextable(flextable(summary_table))
 
-print(doc, target = "risk_assessment_table.docx")
+# --- Municipality Level Table ---
+
+# Calculate first alert week
+alert_week_muni <- risk_2024_muni %>%
+  filter(virus %in% c("Dengue", "Sum of Arboviruses")) %>%
+  group_by(location_name = muni_name, ibge, virus) %>%
+  summarise(first_week_alert_2024 = min(epi_week[riskassessment >= 2], na.rm = TRUE), .groups = 'drop') %>%
+  mutate(first_week_alert_2024 = as.numeric(first_week_alert_2024)) %>%
+  mutate(first_week_alert_2024 = na_if(first_week_alert_2024, Inf))
+
+# Display the table
+knitr::kable(alert_week_muni,
+             caption = "Selected Municipalities: First Alert Week in 2024 (Level >= 2)",
+             col.names = c("Municipality", "IBGE", "Virus", "2024 First Alert Week"))
+
+
+# Create word docx
+doc <- read_docx()
+
+# --- Country Level ---
+doc <- doc %>%
+  body_add_par("Country Level: First Alert Week in 2024 (Level >= 2)", style = "heading 1") %>%
+  body_add_flextable(flextable(alert_week_country)) %>%
+  body_add_par("")
+
+# --- State Level ---
+doc <- doc %>%
+  body_add_par("State Level: First Alert Week in 2024 (Level >= 2)", style = "heading 1") %>%
+  body_add_flextable(flextable(alert_week_state)) %>%
+  body_add_par("")
+
+# --- Municipality Level ---
+doc <- doc %>%
+  body_add_par("Municipality Level: First Alert Week in 2024 (Level >= 2)", style = "heading 1") %>%
+  body_add_flextable(flextable(alert_week_muni)) %>%
+  body_add_par("")
+
+# Save
+print(doc, target = "epidemic_tables.docx")
 ```
-
 
 ### Combining with Emergency Declarations in Epidemiological Year 2024
 
@@ -900,12 +1065,11 @@ create_risk_plot <- function(data, facet_var = NULL) {
     ) +
 theme_classic(base_size = 14) +
     theme(
-      text = element_text(size = 18),
-      axis.title = element_text(face = "bold", size = 18),
-      axis.text = element_text(size = 18),
+      plot.title = element_text(face = "bold", size = rel(1.2)),
+      axis.title = element_text(face = "bold", size = rel(1)),
       legend.position = "bottom",
-      legend.title = element_text(face = "bold", size = 18),
-      legend.text = element_text(size = 18),
+      legend.title = element_text(face = "bold", size = rel(1)),
+      legend.text = element_text(size = rel(0.9)),
       panel.grid.major.y = element_line(color = "grey90", linewidth = 0.5), # Add subtle grid lines
       strip.background = element_rect(fill = "grey92", color = NA), # Style facet titles
       strip.text = element_text(face = "bold", size = rel(0.9)),
@@ -926,35 +1090,58 @@ theme_classic(base_size = 14) +
 
 ### Country-wide
 
-
-```{r risk-country-dengue, fig.width=16, fig.height=12}
+#### Dengue
+```{r risk-country-dengue, fig.width=12, fig.height=10}
 dengue_risk_country <- create_risk_plot(
   data = risk_2024_country %>% filter(virus == "Dengue")) +
   geom_vline(data = emergency_country, aes(xintercept = epi_week), linetype = "solid", color = "black", size = 1) +
   geom_vline(data = emergency_state, aes(xintercept = epi_week), linetype = "dashed", color = "black", size = 1) +
-  geom_text(data = emergency_state_labels, aes(x = epi_week, y = 220, label = uf_labels), vjust = 1.5, size = 6)
+  geom_text(data = emergency_state_labels, aes(x = epi_week, y = 220, label = uf_labels), vjust = 1.5, size = 3.5)
 
 print(dengue_risk_country)
-ggsave(here("Graphs/Risk Levels of Dengue Outbreak in 2024 in Brazil with Emergency Dec.png"), dengue_risk_country, height = 12, width = 16, dpi = 600, create.dir = TRUE)
+ggsave(here("Graphs/Risk Levels of Dengue Outbreak in 2024 in Brazil with Emergency Dec.png"), dengue_risk_country, height = 10, width = 12, dpi = 300, create.dir = TRUE)
+```
+
+#### Dengue, Chikungunya, and Zika
+```{r risk-country-threee, fig.width=12, fig.height=10}
+sum_risk_country <- create_risk_plot(
+  data = risk_2024_country %>% filter(virus == "Sum of Arboviruses")) +
+  geom_vline(data = emergency_country, aes(xintercept = epi_week), linetype = "solid", color = "black", size = 1) +
+  geom_vline(data = emergency_state, aes(xintercept = epi_week), linetype = "dashed", color = "black", size = 1) +
+  geom_text(data = emergency_state_labels, aes(x = epi_week, y = 230, label = uf_labels), vjust = 1.5, size = 3.5)
+
+print(sum_risk_country)
+ggsave(here("Graphs/Risk Levels of Arbovirus (Sum) Outbreak in 2024 in Brazil with Emergency Dec.png"), sum_risk_country, height = 10, width = 12, dpi = 300, create.dir = TRUE)
 ```
 
 ### State-level 
 
-
-```{r risk-state-dengue, fig.width=16, fig.height=12}
+#### Dengue
+```{r risk-state-dengue, fig.width=12, fig.height=10}
 dengue_risk_state <- create_risk_plot(
   data = risk_2024_state %>% filter(virus == "Dengue"),
   facet_var = "uf") + 
   geom_vline(data = emergency_state, aes(xintercept = epi_week), linetype = "dashed", color = "black", size = 1.5)
 
 print(dengue_risk_state)
-ggsave(here("Graphs/Risk Levels of Dengue Outbreak in 2024 per State with Emergency Dec.png"), dengue_risk_state, height = 12, width = 16, dpi = 600, create.dir = TRUE)
+ggsave(here("Graphs/Risk Levels of Dengue Outbreak in 2024 per State with Emergency Dec.png"), dengue_risk_state, height = 10, width = 12, dpi = 300, create.dir = TRUE)
 ```
     
+#### Dengue, Chikungunya, and Zika
+```{r risk-state-threee, fig.width=12, fig.height=10}
+sum_risk_state <- create_risk_plot(
+  data = risk_2024_state %>% filter(virus == "Sum of Arboviruses"),
+  facet_var = "uf") + 
+  geom_vline(data = emergency_state, aes(xintercept = epi_week), linetype = "dashed", color = "black", size = 1.5)
+
+print(sum_risk_state)
+ggsave(here("Graphs/Risk Levels of Arbovirus (Sum) Outbreak in 2024 per State with Emergency Dec.png"), sum_risk_state, height = 10, width = 12, dpi = 300, create.dir = TRUE)
+```
+
 ### Selected Municipalities
 
-
-```{r risk-muni-dengue, fig.width=16, fig.height=12}
+#### Dengue
+```{r risk-muni-dengue, fig.width=12, fig.height=10}
 dengue_risk_muni <- create_risk_plot(
   data = risk_2024_muni %>% filter(virus == "Dengue"),
   facet_var = "muni_name") +
@@ -962,33 +1149,24 @@ dengue_risk_muni <- create_risk_plot(
   geom_vline(data = emergency_state_for_muni_plot, aes(xintercept = epi_week), linetype = "dashed", color = "black", size = 1.5)
 
 print(dengue_risk_muni)
-ggsave(here("Graphs/Risk Levels of Dengue Outbreak in 2024 per Municipality with Emergency Dec.png"), dengue_risk_muni, height = 12, width = 16, dpi = 600, create.dir = TRUE)
+ggsave(here("Graphs/Risk Levels of Dengue Outbreak in 2024 per Municipality with Emergency Dec.png"), dengue_risk_muni, height = 10, width = 12, dpi = 300, create.dir = TRUE)
+```
+
+#### Dengue, Chikungunya, and Zika
+```{r risk-muni-threee, fig.width=12, fig.height=10}
+sum_risk_muni <- create_risk_plot(
+  data = risk_2024_muni %>% filter(virus == "Sum of Arboviruses"),
+  facet_var = "muni_name") +
+  geom_vline(data = emergency_muni, aes(xintercept = epi_week), linetype = "dotted", color = "black", size = 1.5) +
+  geom_vline(data = emergency_state_for_muni_plot, aes(xintercept = epi_week), linetype = "dashed", color = "black", size = 1.5)
+
+print(sum_risk_muni)
+ggsave(here("Graphs/Risk Levels of Arbovirus (Sum) Outbreak in 2024 per Municipality with Emergency Dec.png"), sum_risk_muni, height = 10, width = 12, dpi = 300, create.dir = TRUE)
 ```
 
 ## Mapping First Week Alert in 2024
 
-```{r mapping-firstweekalert, fig.width=16, fig.height=12}
-### Calculate First Alert Week
-# This chunk calculates the first week each location entered risk level 2 or 3.
-
-# States
-alert_week_state <- risk_2024_state %>%
-  filter(riskassessment %in% c("2", "3")) %>% # Filter for alert/epidemic levels
-  group_by(location_name = uf, virus) %>%      # Group by state and virus
-  summarise(
-    first_week_alert_2024 = min(epi_week, na.rm = TRUE), # Find the earliest week
-    .groups = 'drop'
-  )
-
-# Municipalities
-alert_week_muni <- risk_2024_muni %>%
-  filter(riskassessment %in% c("2", "3")) %>% # Filter for alert/epidemic levels
-  group_by(location_name = muni_name, ibge, virus) %>% # Group by municipality, ibge, and virus
-  summarise(
-    first_week_alert_2024 = min(epi_week, na.rm = TRUE), # Find the earliest week
-    .groups = 'drop'
-  )
-
+```{r mapping-firstweekalert, fig.width=12, fig.height=10}
 # Filter for virus data and rename columns for joining
 dengue_alert_week_state_filtered <- alert_week_state %>%
  filter(virus == "Dengue") %>%
@@ -1035,8 +1213,7 @@ dengue_risk_map_themed <- ggplot() +
  geom_sf(data = dengue_map_alert_capitals, aes(shape = alert_week_group),
  fill = NA, color = "darkgrey", alpha = 1, size = 4, stroke = 2) +
 scale_fill_brewer(
-    palette = "Oranges",
-    direction = -1,
+    palette = "PuBuGn",
     name = "First Week 'Alert' (S)",
  drop = F
  ) +
@@ -1059,18 +1236,16 @@ scale_fill_brewer(
  panel.grid = element_blank(),
  panel.border = element_blank(),
  axis.title = element_text(),
- axis.text = element_text(),
- legend.title = element_text(size = 18), 
- legend.text = element_text(size = 18) 
+ axis.text = element_text()
  )
 
 print(dengue_risk_map_themed)
-ggsave(here("Graphs", "Map First Week Alert 2024.png"), dengue_risk_map_themed, width = 16, height = 12, dpi = 600)
+ggsave(here("Graphs", "Map First Week Alert 2024.png"), dengue_risk_map_themed, width = 12, height = 10, dpi = 300)
 ```
 
 ## Mapping the lag between Alert and Emergency Declaration
 
-```{r mapping-lag-diff, fig.width=16, fig.height=12}
+```{r mapping-lag-diff, fig.width=12, fig.height=10}
 # 1. Create the data frames for emergency declarations
 emergency_week_state <- emergency_state %>%
   select(uf, declaration_week = epi_week)
@@ -1134,7 +1309,7 @@ lag_map <- ggplot() +
   geom_sf(data = lag_map_data_capitals, aes(shape = lag_category),
           fill = NA, color = "darkgrey", alpha = 1, size = 4, stroke = 2) +
   scale_fill_brewer(
-    palette = "Paired",
+    palette = "RdBu",
     name = "Timeliness of Emergency Declaration (S)",
     drop = T, 
     na.translate = F
@@ -1158,11 +1333,9 @@ lag_map <- ggplot() +
   panel.grid = element_blank(),
   panel.border = element_blank(),
   axis.title = element_text(),
-  axis.text = element_text(),
-  legend.title = element_text(size = 18),
-  legend.text = element_text(size = 18) 
+  axis.text = element_text()
  )
 
 print(lag_map)
-ggsave(here("Graphs", "Map_Lag_Alert_Declaration_2024.png"), lag_map, width = 16, height = 12, dpi = 600)
+ggsave(here("Graphs", "Map_Lag_Alert_Declaration_2024.png"), lag_map, width = 12, height = 10, dpi = 300)
 ```
