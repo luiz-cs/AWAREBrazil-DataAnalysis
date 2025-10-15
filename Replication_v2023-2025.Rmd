@@ -34,6 +34,8 @@ library(sf)
 library(scales)
 library(RColorBrewer)
 library(patchwork)
+library(gtsummary)
+
 ```
 
 ---
@@ -101,7 +103,7 @@ codibge <- list(
 ```{r preparing-data}
 # 1. Create the base dataset
 arboviruses_base <- arboviruses_full %>%
-  select(ibge, calendar_year_week, municipality, uf, virus, likely_cases, deaths, population) %>%
+  select(ibge, calendar_year, calendar_week, calendar_year_week, municipality, uf, virus, likely_cases, deaths, population) %>%
   left_join(epiweek40, by = "calendar_year_week") %>%
   arrange(epi_year, epi_week) %>%
   filter(!is.na(municipality), !is.na(epi_year), !is.na(epi_week))
@@ -124,7 +126,7 @@ country_population <- arboviruses_base %>%
 # Munis 
 arboviruses_muni <- arboviruses_base %>%
   filter(ibge %in% unlist(codibge)) %>%
-  group_by(ibge, municipality, uf, calendar_year_week, epi_year, epi_week, epi_year_week, virus) %>%
+  group_by(ibge, municipality, uf, calendar_year, calendar_week, calendar_year_week, epi_year, epi_week, epi_year_week, virus) %>%
   summarise(
     cases = sum(likely_cases),
     deaths = sum(deaths),
@@ -151,7 +153,7 @@ arboviruses_muni <- arboviruses_muni %>%
 
 # States 
 arboviruses_state <- arboviruses_base %>%
-  group_by(uf, calendar_year_week, epi_year, epi_week, epi_year_week, virus) %>%
+  group_by(uf, calendar_year, calendar_week, calendar_year_week, epi_year, epi_week, epi_year_week, virus) %>%
   summarise(
     cases = sum(likely_cases),
     deaths = sum(deaths),
@@ -177,7 +179,7 @@ arboviruses_state <- arboviruses_state %>%
 
 # Country 
 arboviruses_country <- arboviruses_base %>%
-  group_by(calendar_year_week, epi_year, epi_week, epi_year_week, virus) %>%
+  group_by(calendar_year, calendar_week, calendar_year_week, epi_year, epi_week, epi_year_week, virus) %>%
   summarise(
     cases = sum(likely_cases),
     deaths = sum(deaths),
@@ -209,7 +211,7 @@ arboviruses_country <- arboviruses_country %>%
 
 ---
 
-# Plotting Function
+# Line Plotting Function
 
 ```{r funct-plot}
 create_arbovirus_plot <- function(data, y_var, virus_filter_expr, y_lab,
@@ -376,6 +378,162 @@ create_arbovirus_plot(
   facet_by = "muni_name",
   year_interval = 2,
   file_name = "Deaths of Dengue per Selected Municipalities.png"
+)
+```
+
+---
+
+# Overlaid Years Plotting Function
+
+```{r funct-plot-overlaid}
+create_arbovirus_plot_overlaid <- function(data, y_var, virus_filter_expr, y_lab,
+                                           facet_by = NULL,
+                                           file_name,
+                                           legend_position = "top") {
+
+  # Use quosures for tidy evaluation
+  y_var_quo <- enquo(y_var)
+  virus_filter_quo <- enquo(virus_filter_expr)
+
+  # Define epi-week order (winter year: 40 → 1 → 39)
+  winter_week_order <- c(40:53, 1:39)
+
+  plot_data <- data %>%
+    filter(epi_year >= 2015 & epi_year <= 2024) %>%
+    mutate(
+      epi_year = as.factor(epi_year),
+      calendar_week = factor(calendar_week, levels = winter_week_order)
+    )
+
+  # Define custom axis breaks and labels
+  axis_breaks <- c(40, 1, 20, 39)
+  axis_labels <- c("40", "1", "20", "39")
+
+  # Build plot
+  p <- plot_data %>%
+    filter(!!virus_filter_quo) %>%
+    ggplot(aes(x = calendar_week, y = !!y_var_quo, group = epi_year, color = epi_year)) +
+    geom_line(alpha = 0.8, linewidth = 1.2, na.rm = TRUE) +
+    scale_color_viridis_d(name = "Epidemiological Year") +
+    labs(
+      x = "Calendar Week (Week 40 of Previous Calendar Year to Week 39 of Current Calendar Year)",
+      y = y_lab
+    ) +
+    # Ensure all epi weeks appear (even if empty)
+    scale_x_discrete(breaks = as.character(axis_breaks), labels = axis_labels, drop = FALSE) +
+    theme_classic(base_size = 14) +
+    theme(
+      text = element_text(size = 20),
+      axis.title = element_text(face = "bold", size = 20),
+      axis.text = element_text(size = 20),
+      legend.position = legend_position,
+      panel.grid.major.y = element_line(color = "grey85", linewidth = 0.5),
+      axis.text.x = element_text(angle = 45, hjust = 1)
+    )
+
+  # Add faceting if requested
+  if (!is.null(facet_by)) {
+    p <- p + facet_wrap(vars(!!sym(facet_by)), scales = "free_y")
+  }
+
+  # Output
+  print(p)
+  ggsave(
+    here("Graphs", file_name),
+    p,
+    height = 15,
+    width = 15,
+    dpi = 600,
+    create.dir = TRUE
+  )
+}
+```
+
+---
+
+## Incidence (Overlaid Years)
+
+### Country-wide Incidence
+
+```{r incidence-country-dengue-overlaid, fig.width=15, fig.height=15}
+create_arbovirus_plot_overlaid(
+  data = arboviruses_country,
+  y_var = incidence,
+  virus_filter_expr = virus == "Dengue",
+  y_lab = "Incidence Rate (per 100,000 pop.)",
+  legend_position = "top",
+  file_name = "Incidence of Dengue in Brazil_overlaid.png"
+)
+```
+
+### State-level Incidence
+
+```{r incidence-state-dengue-overlaid, fig.width=15, fig.height=15}
+create_arbovirus_plot_overlaid(
+  data = arboviruses_state,
+  y_var = incidence,
+  virus_filter_expr = virus == "Dengue",
+  y_lab = "Incidence Rate (per 100,000 pop.)",
+  legend_position = "top",
+  facet_by = "uf",
+  file_name = "Incidence of Dengue per State_overlaid.png"
+)
+```
+
+### Selected Municipalities Incidence
+
+```{r incidence-muni-dengue-overlaid, fig.width=15, fig.height=15}
+create_arbovirus_plot_overlaid(
+  data = arboviruses_muni,
+  y_var = incidence,
+  virus_filter_expr = virus == "Dengue",
+  y_lab = "Incidence Rate (per 100,000 pop.)",
+  legend_position = "top",
+  facet_by = "muni_name",
+  file_name = "Incidence of Dengue per Selected Municipalities_overlaid.png"
+)
+```
+
+## Mortality (Overlaid Years)
+
+### Country-wide Deaths
+
+```{r deaths-country-dengue-overlaid, fig.width=15, fig.height=15}
+create_arbovirus_plot_overlaid(
+  data = arboviruses_country,
+  y_var = death_rate,
+  virus_filter_expr = virus == "Dengue",
+  y_lab = "Death Rate (per 100,000 pop.)",
+  legend_position = "top",
+  file_name = "Deaths of Dengue in Brazil_overlaid.png"
+)
+```
+
+### State-level Deaths
+
+```{r deaths-state-dengue-overlaid, fig.width=15, fig.height=15}
+create_arbovirus_plot_overlaid(
+  data = arboviruses_state,
+  y_var = death_rate,
+  virus_filter_expr = virus == "Dengue",
+  y_lab = "Cumulative Death Rate (per 100,000 pop.) per Epidemiological Year",
+  legend_position = "top",
+  facet_by = "uf",
+  file_name = "Deaths of Dengue per State_overlaid.png"
+)
+```
+
+### Selected Municipalities Deaths
+
+```{r deaths-muni-dengue-overlaid, fig.width=15, fig.height=15}
+create_arbovirus_plot_overlaid(
+  data = arboviruses_muni,
+  y_var = death_rate,
+  virus_filter_expr = virus == "Dengue",
+  y_lab = "Cumulative Death Rate (per 100,000 pop.) per Epidemiological Year",
+  legend_position = "top",
+  facet_by = "muni_name",
+  file_name = "Deaths of Dengue per Selected Municipalities_overlaid.png"
 )
 ```
 
@@ -688,40 +846,66 @@ risk_muni_prep <- risk_2024_muni %>%
 # --- Combine all levels into one dataframe ---
 all_levels_risk <- bind_rows(risk_country_prep, risk_state_prep, risk_muni_prep)
 
-# --- Calculate the required metrics ---
-summary_table <- all_levels_risk %>%
+# --- Calculate metrics ---
+summary_data <- all_levels_risk %>%
   group_by(level, location) %>%
   summarise(
-    # Find the first epidemiological week with an alert (risk level 2 or 3)
-    first_alert_epi_week = min(epi_week[riskassessment %in% c("2", "3")], na.rm = TRUE),
+    # Find the first epidemiological week for alert (risk level 2)
+    first_alert_week_epi = min(epi_week[riskassessment == 2], na.rm = TRUE),
     
-    # Count the number of weeks at alert level
-    weeks_in_alert = sum(riskassessment == "2", na.rm = TRUE),
+    # Find the first epidemiological week for epidemic (risk level 3)
+    first_epidemic_week_epi = min(epi_week[riskassessment == 3], na.rm = TRUE),
+
+    # Calculate max consecutive weeks at level 2 using run-length encoding (rle)
+    max_consecutive_level2 = {
+      rle_res <- rle(riskassessment == 2)
+      if (any(rle_res$values)) max(rle_res$lengths[rle_res$values]) else 0
+    },
+
+    # Calculate max consecutive weeks at level 3
+    max_consecutive_level3 = {
+      rle_res <- rle(riskassessment == 3)
+      if (any(rle_res$values)) max(rle_res$lengths[rle_res$values]) else 0
+    },
+
+    # Calculate max consecutive weeks at level 2 or 3
+    max_consecutive_level2_or_3 = {
+      rle_res <- rle(riskassessment %in% c(2, 3))
+      if (any(rle_res$values)) max(rle_res$lengths[rle_res$values]) else 0
+    },
     
-    # Count the number of weeks at epidemic level
-    weeks_in_epidemic = sum(riskassessment == "3", na.rm = TRUE),
     .groups = 'drop'
+  )
+
+# --- Prepare for final table creation ---
+# Create a distinct lookup table for week information to prevent join issues
+week_lookup <- all_levels_risk %>% 
+  select(location, epi_week, calendar_year_week) %>% 
+  distinct()
+
+# Join to get calendar weeks and format the final table
+summary_table <- summary_data %>%
+  # Join to get the calendar week for the first alert
+  left_join(week_lookup, by = c("location", "first_alert_week_epi" = "epi_week")) %>%
+  rename(first_alert_cal = calendar_year_week) %>%
+  # Join to get the calendar week for the first epidemic
+  left_join(week_lookup, by = c("location", "first_epidemic_week_epi" = "epi_week")) %>%
+  rename(first_epidemic_cal = calendar_year_week) %>%
+  # Handling cases with no alert/epidemic
+  mutate(
+    first_alert_display = if_else(is.infinite(first_alert_week_epi), "No Alert", first_alert_cal),
+    first_epidemic_display = if_else(is.infinite(first_epidemic_week_epi), "No Epidemic", first_epidemic_cal)
   ) %>%
-  # Get the corresponding calendar week for the first alert
-  left_join(
-    all_levels_risk %>% select(location, epi_week, calendar_year_week) %>% distinct(),
-    by = c("location" = "location", "first_alert_epi_week" = "epi_week")
-  ) %>% 
-  mutate( # Code 'No Alert'
-    first_alert_week_cal = if_else(
-      is.infinite(first_alert_epi_week), 
-      "No Alert", 
-      calendar_year_week
-    )
-  ) %>%
-  # Select cols for table
+  # Select and rename columns for the final output
   select(
+    `Level` = level,
     `Location` = location,
-    `First week Alert (calendar-year-week)` = first_alert_week_cal,
-    `N. Weeks Alert` = weeks_in_alert,
-    `N. Weeks Epidemic` = weeks_in_epidemic
-  ) %>%
-  distinct() # Unique rows per location
+    `First Week Alert (level 2)` = first_alert_display,
+    `First Week Epidemic (level 3)` = first_epidemic_display,
+    `Max. Consecutive Weeks (level 2)` = max_consecutive_level2,
+    `Max. Consecutive Weeks (level 3)` = max_consecutive_level3,
+    `Max. Consecutive Weeks (level 2 or 3)` = max_consecutive_level2_or_3
+  )
 
 # --- Display table ---
 knitr::kable(summary_table, caption = "Risk Assessment Summary for All Levels (Dengue, 2024)")
@@ -731,9 +915,8 @@ doc <- read_docx() %>%
   body_add_par("Risk Assessment Summary for All Levels (Dengue, 2024)", style = "heading 1") %>%
   body_add_flextable(flextable(summary_table))
 
-print(doc, target = "risk_assessment_table.docx")
+print(doc, target = "risk_assessment.docx")
 ```
-
 
 ### Combining with Emergency Declarations in Epidemiological Year 2024
 
@@ -926,7 +1109,6 @@ theme_classic(base_size = 14) +
 
 ### Country-wide
 
-
 ```{r risk-country-dengue, fig.width=16, fig.height=12}
 dengue_risk_country <- create_risk_plot(
   data = risk_2024_country %>% filter(virus == "Dengue")) +
@@ -940,7 +1122,6 @@ ggsave(here("Graphs/Risk Levels of Dengue Outbreak in 2024 in Brazil with Emerge
 
 ### State-level 
 
-
 ```{r risk-state-dengue, fig.width=16, fig.height=12}
 dengue_risk_state <- create_risk_plot(
   data = risk_2024_state %>% filter(virus == "Dengue"),
@@ -952,7 +1133,6 @@ ggsave(here("Graphs/Risk Levels of Dengue Outbreak in 2024 per State with Emerge
 ```
     
 ### Selected Municipalities
-
 
 ```{r risk-muni-dengue, fig.width=16, fig.height=12}
 dengue_risk_muni <- create_risk_plot(
@@ -1010,7 +1190,7 @@ dengue_map_alert_capitals <- capitals_points %>%
 # Breaks
 dengue_week_breaks <- c(5, 9, 12, Inf)
 
-dengue_week_labels <- c("Week 5-8", "Week 9-12", "Week 12+")
+dengue_week_labels <- c("5-8 Weeks", "9-12 Weeks", "12+ Weeks")
 
 dengue_map_alert_states <- dengue_map_alert_states %>%
  mutate(first_week_alert_2024 = as.numeric(first_week_alert_2024)) %>%
@@ -1037,11 +1217,11 @@ dengue_risk_map_themed <- ggplot() +
 scale_fill_brewer(
     palette = "Oranges",
     direction = -1,
-    name = "First Week 'Alert' (S)",
+    name = "Risk Level >= 2 (S)",
  drop = F
  ) +
  scale_shape_manual(
- name = "First Week 'Alert' (C)",
+ name = "Risk Level >= 2 (C)",
          values = c(21, 22, 23),
   na.translate = FALSE,
  drop = F
@@ -1166,3 +1346,109 @@ lag_map <- ggplot() +
 print(lag_map)
 ggsave(here("Graphs", "Map_Lag_Alert_Declaration_2024.png"), lag_map, width = 16, height = 12, dpi = 600)
 ```
+
+# Logit Regressions: Risk Duration and Emergency Declaration
+
+```{r running-logit}
+# --- 1. State-Level Analysis ---
+
+# Prepare the data for state-level regressions
+state_regression_data <- summary_table %>%
+  filter(Level == "State") %>%
+  mutate(declared_emergency = ifelse(Location %in% emergency_state$uf, 1, 0)) %>%
+  select(
+    location = Location,
+    declared_emergency,
+    max_consecutive_level2 = `Max. Consecutive Weeks (level 2)`,
+    max_consecutive_level3 = `Max. Consecutive Weeks (level 3)`,
+    max_consecutive_level2_or_3 = `Max. Consecutive Weeks (level 2 or 3)`
+  )
+
+# Run the three logistic regression models for states
+logit_state_l2 <- glm(declared_emergency ~ max_consecutive_level2, data = state_regression_data, family = binomial)
+logit_state_l3 <- glm(declared_emergency ~ max_consecutive_level3, data = state_regression_data, family = binomial)
+logit_state_l23 <- glm(declared_emergency ~ max_consecutive_level2_or_3, data = state_regression_data, family = binomial)
+
+
+# --- 2. Municipality-Level Analysis ---
+
+# Create lookup tables for muni info and emergency declaration weeks
+muni_info_lookup <- arboviruses_muni %>% distinct(muni_name, ibge, uf)
+state_declaration_weeks <- emergency_state %>% select(uf, state_declaration_week = epi_week)
+muni_declaration_weeks <- emergency_muni %>% select(ibge, muni_declaration_week = epi_week)
+
+# Prepare the data for municipality-level regressions
+muni_regression_data <- summary_table %>%
+  filter(Level == "Municipality") %>%
+  left_join(muni_info_lookup, by = c("Location" = "muni_name")) %>%
+  left_join(state_declaration_weeks, by = "uf") %>%
+  left_join(muni_declaration_weeks, by = "ibge") %>%
+  mutate(
+    declared_emergency = ifelse(ibge %in% emergency_muni$ibge, 1, 0),
+    state_declared_before = ifelse(
+      !is.na(state_declaration_week) & (is.na(muni_declaration_week) | state_declaration_week < muni_declaration_week),
+      1, 0
+    )
+  ) %>%
+  select(
+    location = Location,
+    declared_emergency,
+    state_declared_before,
+    max_consecutive_level2 = `Max. Consecutive Weeks (level 2)`,
+    max_consecutive_level3 = `Max. Consecutive Weeks (level 3)`,
+    max_consecutive_level2_or_3 = `Max. Consecutive Weeks (level 2 or 3)`
+  )
+
+# Run the three logistic regression models for municipalities
+logit_muni_l2 <- glm(declared_emergency ~ state_declared_before + max_consecutive_level2, data = muni_regression_data, family = binomial)
+logit_muni_l3 <- glm(declared_emergency ~ state_declared_before + max_consecutive_level3, data = muni_regression_data, family = binomial)
+logit_muni_l23 <- glm(declared_emergency ~ state_declared_before + max_consecutive_level2_or_3, data = muni_regression_data, family = binomial)
+
+# --- 3. Create Publication-Ready Tables ---
+
+# Combine the three state models into a single table
+tbl_states_final <- tbl_merge(
+  tbls = list(
+    tbl_regression(logit_state_l2, exponentiate = TRUE),
+    tbl_regression(logit_state_l3, exponentiate = TRUE),
+    tbl_regression(logit_state_l23, exponentiate = TRUE)
+  ),
+  # Add column labels for each model
+  tab_spanner = c("**Model 1**", "**Model 2**", "**Model 3**")
+) %>%
+  # Add a main title to the table
+  modify_caption("Association Between High-Risk Duration and State Emergency Declaration")
+
+# Combine the three municipality models into a single table
+tbl_munis_final <- tbl_merge(
+  tbls = list(
+    tbl_regression(logit_muni_l2, exponentiate = TRUE),
+    tbl_regression(logit_muni_l3, exponentiate = TRUE),
+    tbl_regression(logit_muni_l23, exponentiate = TRUE)
+  ),
+  tab_spanner = c("**Model 4**", "**Model 5**", "**Model 6**")
+) %>%
+  modify_caption("Association Between High-Risk Duration and Municipal Emergency Declaration")
+
+# Display the final tables
+tbl_states_final
+tbl_munis_final
+
+# --- 4. Save Tables to a Word Document ---
+# This part is optional but useful for manuscript preparation
+
+# Convert gtsummary tables to flextables to save them
+ft_states <- as_flex_table(tbl_states_final)
+ft_munis <- as_flex_table(tbl_munis_final)
+
+# Create a Word document and add the tables
+doc <- read_docx() %>%
+  body_add_par("Logistic Regression Results for Dengue Emergency Declarations", style = "heading 1") %>%
+  body_add_flextable(ft_states) %>%
+  body_add_break() %>%
+  body_add_flextable(ft_munis)
+
+# Save the document
+print(doc, target = "Regression_Tables.docx")
+```
+
