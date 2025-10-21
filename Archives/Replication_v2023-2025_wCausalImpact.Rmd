@@ -1460,7 +1460,7 @@ ggsave(here("Graphs", "Scatter_Risk_Duration_Munis.png"),
   create.dir = TRUE)
 ```
 
-# Logit Regressions: Correlates of Emergency Declaration
+# Logit Regressions: Risk Duration and Emergency Declaration
 
 ```{r running-logit}
 # --- 1. State-Level Analysis ---
@@ -1520,3 +1520,133 @@ doc <- read_docx() %>%
 # Save the document
 print(doc, target = "Regression_Tables.docx")
 ```
+
+# Causal Impact
+
+```{r causalimpact}
+# Prepare Datasets 
+country_data <- arboviruses_country %>% filter(virus == "Dengue", epi_year %in% c(2023, 2024)) %>% arrange(epi_year, epi_week)
+state_data <- arboviruses_state %>% filter(virus == "Dengue", epi_year %in% c(2023, 2024)) %>% arrange(uf, epi_year, epi_week)
+muni_data <- arboviruses_muni %>% filter(virus == "Dengue", epi_year %in% c(2023, 2024)) %>% arrange(muni_name, epi_year, epi_week)
+
+# Function
+run_causal_impact_analysis <- function(data_for_location, intervention_date_str, outcome_var) {
+  
+  # Create a complete time series with a real date index
+  time_series_data <- data_for_location %>%
+    mutate(date = as.Date(paste(substr(calendar_year_week, 1, 4), substr(calendar_year_week, 6, 7), 1, sep = "-"), "%Y-%U-%u"))
+    
+  # Define pre and post periods 
+  intervention_date <- as.Date(paste(substr(intervention_date_str, 1, 4), substr(intervention_date_str, 6, 7), 1, sep = "-"), "%Y-%U-%u")
+  pre_period  <- c(min(time_series_data$date), intervention_date)
+  post_period <- c(intervention_date + 7, max(time_series_data$date))
+  
+  # Select only the outcome variable for the univariate model
+  y <- time_series_data %>% select(!!sym(outcome_var))
+  
+  # Create the zoo object (just one column)
+  impact_data_zoo <- zoo(y, time_series_data$date)
+  
+  # Run the model
+  impact_result <- CausalImpact(impact_data_zoo, pre_period, post_period, model.args = list(niter = 5000, nseasons = 52))
+  
+  return(impact_result)
+}
+```
+
+## Country
+```{r causalimpactcountry}
+# Define the national intervention date
+fed_intervention_date <- emergency_country$calendar_year_week[1]
+
+# --- Run for INCIDENCE ---
+fed_impact_inc <- run_causal_impact_analysis(country_data, fed_intervention_date, "incidence")
+p_inc <- plot(fed_impact_inc) +
+  labs(title = "Emergency Declaration and Dengue Incidence - Brazil", subtitle = paste("Declaration on", fed_intervention_date), x = "Calendar Year-Week") +
+  theme_bw(base_size = 16)
+print(p_inc)
+ggsave(here("Graphs", "CausalImpact_Federal_Brazil_Incidence.png"), p_inc, width = 15, height = 15, dpi = 600, create.dir = TRUE)
+
+# Run for Death Rate
+fed_impact_dth <- run_causal_impact_analysis(country_data, fed_intervention_date, "death_rate")
+p_dth <- plot(fed_impact_dth) +
+  labs(title = "Emergency Declaration and Dengue Death Rate - Brazil", subtitle = paste("Declaration on", fed_intervention_date), x = "Calendar Year-Week") +
+  theme_bw(base_size = 16)
+print(p_dth)
+ggsave(here("Graphs", "CausalImpact_Federal_Brazil_DeathRate.png"), p_dth, width = 15, height = 15, dpi = 600, create.dir = TRUE)
+```
+
+## States
+
+```{r causalimpactstates}
+# Get a list of states that declared an emergency
+states_to_analyze <- unique(emergency_state$uf)
+
+# Loop through each state to run the analysis
+for (state_code in states_to_analyze) {
+
+  # Get the intervention date for this state
+  state_intervention_date <- emergency_state$calendar_year_week[emergency_state$uf == state_code][1]
+  
+  # Filter the data for this state
+  data_for_state <- state_data %>% filter(uf == state_code)
+
+  # --- Run for INCIDENCE ---
+  impact_inc <- run_causal_impact_analysis(data_for_state, state_intervention_date, "incidence")
+  p_inc <- plot(impact_inc) +
+    labs(title = paste("Emergency Declaration and Dengue Incidence -", state_code), subtitle = paste("Declaration on", state_intervention_date), x = "Calendar Year-Week") +
+    theme_bw(base_size = 16)
+  print(p_inc)
+  ggsave(here("Graphs", paste0("CausalImpact_State_", state_code, "_Incidence.png")), p_inc, width = 15, height = 15, dpi = 600, create.dir = TRUE)
+  
+  # --- Run for DEATH RATE ---
+  impact_dth <- run_causal_impact_analysis(data_for_state, state_intervention_date, "death_rate")
+  p_dth <- plot(impact_dth) +
+    labs(title = paste("Emergency Declaration and Dengue Death Rate -", state_code), subtitle = paste("Declaration on", state_intervention_date), x = "Calendar Year-Week") +
+    theme_bw(base_size = 16)
+  print(p_dth)
+  ggsave(here("Graphs", paste0("CausalImpact_State_", state_code, "_DeathRate.png")), p_dth, width = 15, height = 15, dpi = 600, create.dir = TRUE)
+}
+```
+
+## Municipalities
+
+```{r causalimpactmunis}
+# Get a list of municipalities that declared an emergency
+munis_to_analyze <- emergency_muni %>% 
+filter(muni_name == "FLORIANOPOLIS") %>%
+select(ibge) %>%
+  pull() %>%
+  unique()
+
+# Loop through each municipality to run the analysis
+for (muni_code in munis_to_analyze) {
+  
+  # Get the municipality name and intervention date
+  muni_info <- emergency_muni %>% filter(ibge == muni_code)
+  muni_name_str <- muni_info$muni_name[1]
+  muni_intervention_date <- muni_info$calendar_year_week[1]
+  
+  # Filter the data for this municipality
+  data_for_muni <- muni_data %>% filter(muni_name == muni_name_str)
+  
+  # --- Run for INCIDENCE ---
+  impact_inc <- run_causal_impact_analysis(data_for_muni, muni_intervention_date, "incidence")
+  p_inc <- plot(impact_inc) +
+    labs(title = paste("Emergency Declaration and Dengue Incidence -", muni_name_str), subtitle = paste("Declaration on", muni_intervention_date), x = "Calendar Year-Week") +
+    theme_bw(base_size = 16)
+  print(p_inc)
+  ggsave(here("Graphs", paste0("CausalImpact_Muni_", muni_name_str, "_Incidence.png")), p_inc, width = 15, height = 15, dpi = 600, create.dir = TRUE)
+  
+  # --- Run for DEATH RATE ---
+  impact_dth <- run_causal_impact_analysis(data_for_muni, muni_intervention_date, "death_rate")
+  p_dth <- plot(impact_dth) +
+    labs(title = paste("Emergency Declaration and Dengue Death Rate -", muni_name_str), subtitle = paste("Declaration on", muni_intervention_date), x = "Calendar Year-Week") +
+    theme_bw(base_size = 16)
+  print(p_dth)
+  ggsave(here("Graphs", paste0("CausalImpact_Muni_", muni_name_str, "_DeathRate.png")), p_dth, width = 15, height = 15, dpi = 600, create.dir = TRUE)
+}
+```
+
+
+
